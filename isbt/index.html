@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conference Submissions | 5th International Conference, IBS Jaipur</title>
+<meta name="description" content="Submit and track papers for the 5th International Conference of IBS Jaipur.">
+<meta name="theme-color" content="#17171B">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@600;700&family=Montserrat:wght@600;700&family=Poppins:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/portal/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="/isbt/">Conference <span>Submissions</span> <small>IBS Jaipur</small></a>
+    <nav id="nav" aria-label="Conference"><a href="/portal/">Sign in</a><a href="/portal/#/">Track my submission</a></nav>
+  </div>
+</header>
+<main class="wrap" id="app" style="padding-top:36px;padding-bottom:48px;min-height:60vh">
+  <p class="label">Paper submission portal</p>
+  <h1 id="name" style="font-size:34px;margin:8px 0 10px">5th International Conference, IBS Jaipur</h1>
+  <p class="muted" id="when">Checking whether submissions are open…</p>
+  <div id="body" style="margin-top:24px"></div>
+</main>
+<footer class="wrap foot">Submissions for this conference are handled on the WiseWizard submission portal. Questions about the conference itself should go to the organising committee.</footer>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="/portal/config.js"></script>
+<script>
+(function () {
+  'use strict';
+  var CODE = 'ISBT5';
+  var body = document.getElementById('body'), when = document.getElementById('when');
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
+  function soon(msg) { when.textContent = msg; }
+  if (!window.supabase) return soon('The portal could not load. Please refresh the page.');
+  var sb = window.supabase.createClient(window.PORTAL_CONFIG.url, window.PORTAL_CONFIG.key);
+  sb.from('venues').select('code,name,description,closes_on,tracks(code,name)').eq('code', CODE).eq('status', 'open').maybeSingle()
+    .then(function (r) {
+      var v = r.data;
+      if (r.error || !v) return soon('Submissions are not open yet. Please check back soon.');
+      document.getElementById('name').textContent = v.name;
+      soon(v.closes_on ? 'Submissions close on ' + new Date(v.closes_on).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) + '.' : 'Submissions are open.');
+      var card = el('div', 'card stack');
+      if (v.description) { var d = el('p', null, v.description); d.style.whiteSpace = 'pre-line'; card.appendChild(d); }
+      if (v.tracks.length) {
+        card.appendChild(el('h2', null, 'Tracks'));
+        var row = el('div', 'row');
+        v.tracks.forEach(function (t) { row.appendChild(el('span', 'tag', t.code + ' · ' + t.name)); });
+        card.appendChild(row);
+      }
+      var cta = el('a', 'btn', 'Submit your paper'); cta.href = '/portal/#/call/' + CODE;
+      var wrap = el('div'); wrap.appendChild(cta); card.appendChild(wrap);
+      body.appendChild(card);
+    });
+})();
+</script>
+</body>
+</html>

@@ -9,7 +9,7 @@
   var app = document.getElementById('app');
   var nav = document.getElementById('nav');
   var noticeEl = document.getElementById('notice');
-  var session = null, profile = null, recovering = false, flash = null, lastUser = undefined, uid = 0;
+  var session = null, profile = null, recovering = false, flash = null, lastUser = undefined, uid = 0, after = null;
 
   var STATUS = {
     draft: ['Draft', 'draft'], submitted: ['Submitted', ''], under_review: ['Under review', ''],
@@ -84,7 +84,11 @@
     var user = s ? s.user.id : null;
     if (user === lastUser && event !== 'PASSWORD_RECOVERY') return; // token refresh: keep the page as it is
     lastUser = user;
-    setTimeout(async function () { await loadProfile(); route(); }, 0);
+    setTimeout(async function () {
+      await loadProfile();
+      if (session && after) { var a = after; after = null; if (location.hash !== a) { location.hash = a; return; } }
+      route();
+    }, 0);
   });
 
   // ---------- navigation ----------
@@ -107,6 +111,7 @@
     [/^#\/?$/, function () { return session ? dashboard() : loginView(); }],
     [/^#\/login$/, function () { return session ? go('#/') : loginView(); }],
     [/^#\/signup$/, function () { return session ? go('#/') : signupView(); }], [/^#\/calls$/, callsView],
+    [/^#\/call\/([A-Z0-9]{2,10})$/, callView],
     [/^#\/profile$/, guard(profileView)],
     [/^#\/submission\/([0-9a-f-]{36})$/, guard(submissionView)],
     [/^#\/admin\/calls$/, guard(adminCalls)], [/^#\/admin\/submissions$/, guard(adminSubmissions)],
@@ -221,19 +226,27 @@
     var out = [h('div', { class: 'head' }, h('div', null, h('h1', null, 'Calls for papers'),
       h('p', { class: 'muted' }, 'Open issues, special calls and partner conferences.')))];
     if (!venues.length) out.push(h('div', { class: 'empty' }, 'No calls are open right now. Please check back soon.'));
-    venues.forEach(function (v) {
+    venues.forEach(function (v) { out.push(callCard(v)); });
+    show.apply(null, out);
+  }
+  async function callView(code) {
+    var v = ok(await sb.from('venues')
+      .select('id,code,name,type,partner_name,description,opens_on,closes_on,tracks(id,code,name)')
+      .eq('code', code).eq('status', 'open').maybeSingle());
+    show(v ? callCard(v) : h('div', { class: 'empty' }, 'This call is not open for submissions right now.'),
+      h('p', null, h('a', { href: '#/calls' }, 'See all open calls')));
+  }
+  function callCard(v) {
       var btn = h('button', { class: 'btn', type: 'button', onclick: function () { busy(btn, function () { return startSubmission(v); }); } }, 'Start a submission');
-      out.push(h('div', { class: 'card stack' },
+      return h('div', { class: 'card stack' },
         h('div', null, h('span', { class: 'label' }, VENUE[v.type] + (v.partner_name ? ' · with ' + v.partner_name : '')), h('h2', null, v.name)),
         v.description ? h('p', { style: 'white-space:pre-line' }, v.description) : null,
         h('p', { class: 'small muted' }, v.closes_on ? 'Closes ' + day(v.closes_on) : 'Open until further notice'),
         h('div', { class: 'row' }, v.tracks.map(function (t) { return h('span', { class: 'tag' }, t.code + ' · ' + t.name); })),
-        h('div', null, btn)));
-    });
-    show.apply(null, out);
+        h('div', null, btn));
   }
   async function startSubmission(v) {
-    if (!session) return go('#/login', 'Sign in or create an account to start a submission.');
+    if (!session) { after = location.hash; return go('#/login', 'Sign in or create an account to start a submission.'); }
     if (!v.tracks.length) throw new Error('This call has no tracks yet. Please try again later.');
     var s = ok(await sb.from('submissions').insert({ venue_id: v.id, track_id: v.tracks[0].id }).select('id').single());
     ok(await sb.from('submission_authors').insert({
@@ -457,6 +470,16 @@
           go('#/admin/calls', 'Track added.');
         });
       } }, 'Add track');
+      var en = h('input', { type: 'text', value: v.name }), ep = h('input', { type: 'text', value: v.partner_name || '' });
+      var eo = h('input', { type: 'date', value: v.opens_on || '' }), ec = h('input', { type: 'date', value: v.closes_on || '' });
+      var ed = h('textarea', { style: 'min-height:90px' }); ed.value = v.description || '';
+      var es = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+        busy(es, async function () {
+          ok(await sb.from('venues').update({ name: en.value.trim(), partner_name: ep.value.trim() || null,
+            opens_on: eo.value || null, closes_on: ec.value || null, description: ed.value.trim() || null }).eq('id', v.id));
+          go('#/admin/calls', 'Details saved.');
+        });
+      } }, 'Save details');
       out.push(h('div', { class: 'card stack' },
         h('div', { class: 'row', style: 'justify-content:space-between' },
           h('div', null, h('span', { class: 'label' }, v.code + ' · ' + VENUE[v.type]), h('h2', null, v.name)),
@@ -469,7 +492,13 @@
             } }, 'Remove'));
         })),
         h('div', { class: 'grid2' }, field('Track code (2 to 5 letters)', tc), field('Track name', tn)),
-        h('div', null, add)));
+        h('div', null, add),
+        h('p', { class: 'small muted' }, 'Direct link for authors: ' + location.origin + '/portal/#/call/' + v.code),
+        h('details', null, h('summary', null, 'Edit details'),
+          h('div', { class: 'stack', style: 'margin-top:12px' },
+            h('div', { class: 'grid2' }, field('Name', en), field('Partner', ep)),
+            h('div', { class: 'grid2' }, field('Opens on', eo), field('Closes on', ec)),
+            field('Description shown to authors', ed), h('div', null, es)))));
     });
     show.apply(null, out);
   }
