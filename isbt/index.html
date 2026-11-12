@@ -3,57 +3,360 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Conference Submissions | 5th International Conference, IBS Jaipur</title>
-<meta name="description" content="Submit and track papers for the 5th International Conference of IBS Jaipur.">
-<meta name="theme-color" content="#17171B">
+<title>ISBT 2027 | 5th International Conference, IBS Jaipur</title>
+<meta name="description" content="5th International Conference on Intelligent and Sustainable Business Transformations (ISBT 2027), 9-10 April 2027, ICFAI Business School, The ICFAI University, Jaipur. Submit your abstract by 15 February 2027.">
+<meta property="og:title" content="ISBT 2027: Intelligent and Sustainable Business Transformations">
+<meta property="og:description" content="9-10 April 2027, hybrid, IBS Jaipur. Abstracts due 15 February 2027.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://wisewizard.app/isbt/">
+<meta property="og:image" content="https://wisewizard.app/isbt/assets/campus.jpg">
+<meta name="theme-color" content="#2F2E7A">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@600;700&family=Montserrat:wght@600;700&family=Poppins:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="/portal/app.css">
+<style>
+:root{--indigo:#3F3D9E;--indigo-deep:#2F2E7A;--red:#C8102E;--red-dark:#A50D26;--ink:#1E1E22;--grey:#5F626A;--line:#E3E3E7;--paper:#FAFAFB;--tint:#EEEEF9;--purple:#7C4DCC;--gold:#F4C542}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:Poppins,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
+h1,h2,h3{font-family:Lora,Georgia,serif;line-height:1.2;margin:0}
+p{margin:0}
+a{color:var(--indigo)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+.label{font-family:Montserrat,sans-serif;font-weight:700;font-size:12px;letter-spacing:.14em;text-transform:uppercase}
+.btn{display:inline-block;font-family:Montserrat,sans-serif;font-weight:700;font-size:15px;text-decoration:none;padding:14px 24px;border-radius:10px;background:var(--red);color:#fff;min-height:46px}
+.btn:hover{background:var(--red-dark);color:#fff}
+.btn.alt{background:transparent;color:#fff;border:2px solid rgba(255,255,255,.75);padding:12px 22px}
+.btn.alt:hover{background:rgba(255,255,255,.14)}
+a:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.bar{background:#fff;border-bottom:1px solid var(--line)}
+.bar .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:12px;padding-bottom:12px;flex-wrap:wrap}
+.logos{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.logos img{display:block;height:44px;width:auto}
+.logos img.ibs{height:34px}
+.bar nav{display:flex;gap:6px;flex-wrap:wrap}
+.bar nav a{font-family:Montserrat,sans-serif;font-weight:700;font-size:13.5px;text-decoration:none;color:var(--indigo-deep);padding:10px 12px;border-radius:8px}
+.bar nav a:hover{background:var(--tint)}
+.hero{position:relative;color:#fff;background:var(--indigo-deep) url(assets/campus.jpg) center/cover no-repeat}
+.hero::before{content:"";position:absolute;inset:0;background:linear-gradient(100deg,rgba(47,46,122,.96) 0%,rgba(47,46,122,.88) 55%,rgba(47,46,122,.62) 100%)}
+.hero .wrap{position:relative;padding-top:72px;padding-bottom:76px}
+.hero .label{color:#D9D8F6}
+.hero h1{font-size:clamp(32px,5.2vw,56px);margin:12px 0 6px;max-width:15em}
+.hero .tagline{font-family:Lora,Georgia,serif;font-size:clamp(19px,2.4vw,24px);color:#FFD9DE}
+.facts{display:flex;flex-wrap:wrap;gap:10px;margin:26px 0 30px;padding:0;list-style:none}
+.facts li{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:7px 16px;font-weight:500;font-size:15px}
+.cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+#live{margin-top:16px;font-size:14.5px;color:#E4E3FA;min-height:1.6em}
+section{padding:60px 0}
+section.tint{background:var(--tint)}
+.head{max-width:44em;margin-bottom:30px}
+.head .label{color:var(--indigo);margin-bottom:8px}
+.head h2{font-size:clamp(25px,3.4vw,34px)}
+.head p{color:var(--grey);margin-top:10px}
+.dates{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;list-style:none;padding:0;margin:0}
+.dates li{background:#fff;border:1px solid var(--line);border-top:4px solid var(--indigo);border-radius:12px;padding:18px}
+.dates li.key{border-top-color:var(--red)}
+.dates strong{display:block;font-family:Lora,Georgia,serif;font-size:21px;margin-bottom:4px}
+.dates span{color:var(--grey);font-size:14.5px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:32px}
+.two p+p{margin-top:14px}
+.tracks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.track{background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px}
+.track .code{display:inline-block;font-family:Montserrat,sans-serif;font-weight:700;font-size:11.5px;letter-spacing:.1em;background:var(--tint);color:var(--indigo-deep);padding:4px 10px;border-radius:999px;margin-bottom:10px}
+.track h3{font-size:18.5px;margin-bottom:8px}
+.track ul{margin:0;padding-left:20px;color:#3C3E45;font-size:15px}
+.track p{margin-top:8px;font-size:14px;color:var(--grey);font-style:italic}
+.scroll{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:14px}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td,tr:last-child th{border-bottom:0}
+thead th{font-family:Montserrat,sans-serif;font-size:12px;letter-spacing:.08em;text-transform:uppercase;background:var(--indigo-deep);color:#fff}
+tbody th{font-weight:600;white-space:nowrap;color:var(--indigo-deep)}
+td.num{white-space:nowrap;font-weight:500}
+.guide{display:grid;grid-template-columns:230px 1fr;gap:32px;align-items:start}
+.prof{background:var(--ink);color:#fff;border-radius:16px;padding:22px;text-align:center}
+.prof svg{width:120px;height:120px}
+.prof b{display:block;font-family:Lora,Georgia,serif;font-size:19px;margin-top:8px}
+.prof q{display:block;margin-top:10px;font-style:italic;color:#D5D6DB;font-size:14.5px;quotes:"\201C" "\201D"}
+.steps{list-style:none;padding:0;margin:0;display:grid;gap:12px;counter-reset:s}
+.steps li{counter-increment:s;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px 16px 62px;position:relative}
+.steps li::before{content:counter(s);position:absolute;left:16px;top:16px;width:32px;height:32px;border-radius:50%;background:var(--purple);color:#fff;font-family:Montserrat,sans-serif;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps strong{display:block}
+.steps span{color:var(--grey);font-size:15px}
+.note{background:#fff;border:1px solid var(--line);border-left:4px solid var(--red);border-radius:10px;padding:16px 18px;margin-top:18px;font-size:15px}
+.awards{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.award{background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px}
+.award h3{font-size:19px;margin-bottom:10px}
+.award ol{margin:0;padding-left:22px}
+.people{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;list-style:none;padding:0;margin:0 0 26px}
+.people li{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 16px;text-align:center;transition:box-shadow .25s ease}
+.people li:hover,.track:hover{box-shadow:0 8px 22px rgba(47,46,122,.12)}
+.people img{display:block;width:104px;height:104px;border-radius:50%;object-fit:cover;margin:0 auto 12px;border:3px solid var(--tint);background:#fff}
+.people.duo{grid-template-columns:repeat(2,minmax(0,1fr));max-width:720px;margin-left:auto;margin-right:auto}
+.people .role{display:block}
+.track{transition:box-shadow .25s ease}
+.rv{opacity:0;transform:translateY(14px);transition:opacity .55s ease,transform .55s ease}
+.rv.in{opacity:1;transform:none}
+.people .role{font-family:Montserrat,sans-serif;font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--red-dark)}
+.people b{display:block;margin:3px 0 2px}
+.people span{font-size:13.5px;color:var(--grey)}
+h3.sub{font-size:19px;margin:0 0 12px;text-align:center}
+.final{background:var(--indigo-deep);color:#fff;text-align:center}
+.final h2{font-size:clamp(25px,3.4vw,34px)}
+.final p{color:#D9D8F6;margin:10px auto 24px;max-width:36em}
+footer{padding:26px 0 40px;font-size:13.5px;color:var(--grey)}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media (max-width:860px){.dates{grid-template-columns:repeat(2,minmax(0,1fr))}.two,.tracks,.guide,.awards{grid-template-columns:1fr}.people{grid-template-columns:repeat(2,minmax(0,1fr))}.prof{max-width:300px}section{padding:46px 0}.hero .wrap{padding-top:48px;padding-bottom:52px}}
+@media (max-width:480px){.dates,.people,.people.duo{grid-template-columns:1fr}.logos img{height:36px}.logos img.ibs{height:27px}}
+</style>
 </head>
 <body>
-<header class="top">
-  <div class="wrap top-in">
-    <a class="brand" href="/isbt/">Conference <span>Submissions</span> <small>IBS Jaipur</small></a>
-    <nav id="nav" aria-label="Conference"><a href="/portal/">Sign in</a><a href="/portal/#/">Track my submission</a></nav>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="wizard" viewBox="0 0 200 200">
+<circle cx="100" cy="100" r="96" fill="#1E1E22" stroke="#C8102E" stroke-width="6"/>
+<path d="M80 110 L124 110 L146 178 Q102 192 58 178 Z" fill="#7C4DCC"/><path d="M102 112 L112 184 L92 184 Z" fill="#5B34A3"/>
+<line x1="152" y1="62" x2="152" y2="174" stroke="#B9BBC2" stroke-width="5" stroke-linecap="round"/>
+<circle cx="152" cy="52" r="11" fill="#C8102E" fill-opacity="0.3"/><circle cx="152" cy="52" r="7" fill="#E5253F"/>
+<path d="M120 112 L150 118 L150 132 L124 138 Z" fill="#8E61DB"/><circle cx="152" cy="125" r="5.5" fill="#F1D3B8"/>
+<ellipse cx="102" cy="99" rx="15" ry="9" fill="#F1D3B8"/><circle cx="96" cy="98" r="1.8" fill="#1E1E22"/><circle cx="108" cy="98" r="1.8" fill="#1E1E22"/>
+<path d="M85 101 Q102 108 119 101 L116 120 Q108 138 102 148 Q96 138 88 120 Z" fill="#E9E9EC"/>
+<path d="M120 24 C104 28 92 50 66 86 L138 86 C132 64 126 46 113 38 C116 32 118 28 120 24 Z" fill="#7C4DCC"/><ellipse cx="102" cy="87" rx="44" ry="7" fill="#5B34A3"/>
+<path transform="translate(104 64)" d="M0 -7 L1.76 -2.43 L6.66 -2.16 L2.85 0.93 L4.11 5.66 L0 3 L-4.11 5.66 L-2.85 0.93 L-6.66 -2.16 L-1.76 -2.43 Z" fill="#F4C542"/>
+</symbol>
+</svg>
+
+<header class="bar">
+  <div class="wrap">
+    <div class="logos">
+      <img class="ibs" src="assets/ibs-jaipur.png" alt="IBS, ICFAI Business School Jaipur" width="540" height="106">
+      <img src="assets/icfai-university.png" alt="The ICFAI University, Jaipur" width="324" height="135">
+    </div>
+    <nav aria-label="Conference">
+      <a href="#dates">Dates</a><a href="#tracks">Tracks</a><a href="#guidelines">Guidelines</a><a href="#fees">Fees</a>
+      <a href="/portal/">Sign in</a>
+    </nav>
   </div>
 </header>
-<main class="wrap" id="app" style="padding-top:36px;padding-bottom:48px;min-height:60vh">
-  <p class="label">Paper submission portal</p>
-  <h1 id="name" style="font-size:34px;margin:8px 0 10px">5th International Conference, IBS Jaipur</h1>
-  <p class="muted" id="when">Checking whether submissions are open…</p>
-  <div id="body" style="margin-top:24px"></div>
+
+<div class="hero">
+  <div class="wrap">
+    <p class="label">5th International Conference on</p>
+    <h1>Intelligent and Sustainable Business Transformations</h1>
+    <p class="tagline">ISBT 2027</p>
+    <ul class="facts">
+      <li>9 to 10 April 2027</li>
+      <li>Hybrid: on-site and online</li>
+      <li>ICFAI Business School, The ICFAI University, Jaipur</li>
+    </ul>
+    <div class="cta">
+      <a class="btn" id="cta" href="/portal/#/call/ISBT5">Submit your abstract</a>
+      <a class="btn alt" href="/portal/">Track my submission</a>
+    </div>
+    <p id="live" role="status">Abstracts are due by 15 February 2027.</p>
+  </div>
+</div>
+
+<main>
+<section id="dates">
+  <div class="wrap">
+    <div class="head"><p class="label">Important dates</p><h2>Four dates to put in your calendar</h2></div>
+    <ol class="dates">
+      <li class="key"><strong>15 Feb 2027</strong><span>Submission of abstract</span></li>
+      <li><strong>28 Feb 2027</strong><span>Acceptance of abstract</span></li>
+      <li><strong>10 Mar 2027</strong><span>Full paper or extended abstract</span></li>
+      <li><strong>25 Mar 2027</strong><span>Last date of registration</span></li>
+    </ol>
+  </div>
+</section>
+
+<section class="tint" id="about">
+  <div class="wrap">
+    <div class="head"><p class="label">About ISBT</p><h2>Reimagining organisations for an intelligent, sustainable era</h2></div>
+    <div class="two">
+      <div>
+        <p>ISBT 2027 reflects the growing need to reimagine organisations in an era driven by intelligent technologies, sustainability and human-centric innovation. As businesses move from Industry 4.0 to Industry 5.0, artificial intelligence, digital transformation, responsible governance and sustainable practices are reshaping how organisations create value, build resilience and contribute to society.</p>
+      </div>
+      <div>
+        <p>Hosted by ICFAI Business School (IBS), Jaipur, a constituent of The ICFAI University, Jaipur, the conference is an international platform for academicians, researchers, industry leaders, policymakers, entrepreneurs and students.</p>
+        <p>It aims to foster collaborative research and dialogue that produces innovative solutions for resilient, inclusive and future-ready businesses.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="tracks">
+  <div class="wrap">
+    <div class="head"><p class="label">Conference tracks</p><h2>Eight tracks, one for your paper</h2><p>Choose the track closest to your work when you submit. The short code becomes part of your paper ID.</p></div>
+    <div class="tracks">
+      <div class="track"><span class="code">TRACK 1 · AIE</span><h3>Artificial Intelligence, Autonomous Systems and Intelligent Enterprises</h3><ul><li>Generative AI, machine learning, intelligent automation and decision intelligence</li><li>AI governance, human–AI collaboration, enterprise intelligence and responsible AI</li></ul><p>Other emerging AI-driven technologies and intelligent enterprise solutions are also welcome.</p></div>
+      <div class="track"><span class="code">TRACK 2 · DTA</span><h3>Digital Transformation, Business Analytics and Next-Generation Technologies</h3><ul><li>Business analytics, data science, big data, cloud computing and enterprise platforms</li><li>Blockchain, Web 3.0, digital ecosystems and technology-enabled business transformation</li></ul><p>Research on emerging digital technologies and innovation-driven transformation is encouraged.</p></div>
+      <div class="track"><span class="code">TRACK 3 · ESG</span><h3>Sustainable Business, ESG and Climate Resilience</h3><ul><li>ESG reporting, corporate sustainability, circular economy and responsible governance</li><li>Green innovation, climate strategy, sustainable business models and CSR initiatives</li></ul><p>Related research advancing sustainable and responsible business practices may also be submitted.</p></div>
+      <div class="track"><span class="code">TRACK 4 · FOW</span><h3>Future of Work, Human Capital and Organizational Agility</h3><ul><li>Talent analytics, digital leadership, organizational culture and workforce transformation</li><li>Employee well-being, diversity, equity and inclusion, and agile organizations</li></ul><p>Other contemporary research on people, leadership and organizational transformation is welcome.</p></div>
+      <div class="track"><span class="code">TRACK 5 · FIN</span><h3>Sustainable Finance, FinTech and Corporate Governance</h3><ul><li>Sustainable finance, digital banking, green investments and financial innovation</li><li>Corporate governance, enterprise risk management, economic resilience and public policy</li></ul><p>All allied topics in finance, economics, governance and financial technologies are invited.</p></div>
+      <div class="track"><span class="code">TRACK 6 · MKT</span><h3>Intelligent Marketing, Consumer Analytics and Digital Engagement</h3><ul><li>AI-enabled marketing, consumer analytics, customer experience and omnichannel strategies</li><li>Digital marketing, social media intelligence and sustainable consumer behaviour</li></ul><p>Research on emerging marketing technologies and evolving consumer ecosystems is encouraged.</p></div>
+      <div class="track"><span class="code">TRACK 7 · OPS</span><h3>Smart Operations, Industry 5.0 and Intelligent Supply Networks</h3><ul><li>Smart manufacturing, Industry 5.0, IoT and digital twin technologies</li><li>Supply chain analytics, resilient logistics and sustainable operations management</li></ul><p>Other innovations in operations, manufacturing and intelligent supply chain systems are also welcome.</p></div>
+      <div class="track"><span class="code">TRACK 8 · ENT</span><h3>Innovation Ecosystems, Entrepreneurship and Future Ventures</h3><ul><li>Technology entrepreneurship, innovation management, startup financing and venture ecosystems</li><li>Social entrepreneurship, inclusive innovation and sustainable enterprise development</li></ul><p>Research on emerging entrepreneurial ecosystems, innovation and future business ventures is also invited.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="tint" id="guidelines">
+  <div class="wrap">
+    <div class="head"><p class="label">Submission guidelines</p><h2>What to send, and in what shape</h2><p>The conference invites abstracts, extended abstracts and full papers, including empirical, conceptual, theoretical and review papers. All submissions must be original and unpublished.</p></div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th scope="col">Component</th><th scope="col">Guideline</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Abstract</th><td>200–250 words outlining the research objective, methodology, key findings, and theoretical and/or managerial implications.</td></tr>
+          <tr><th scope="row">Extended abstract</th><td>500–2,000 words, suitable for early-stage research, industry studies and policy-oriented work. Include background, problem statement, objectives, methodology, preliminary findings or propositions, and key contributions.</td></tr>
+          <tr><th scope="row">Full paper</th><td>4,000–9,000 words, excluding references and appendices. For empirical, conceptual, theoretical and review papers. Must show originality, methodological rigour, strong theoretical grounding, and clear academic and practical implications.</td></tr>
+          <tr><th scope="row">Review papers</th><td>Systematic, bibliometric or narrative reviews are welcome. State the review protocol or framework, synthesise existing literature, identify research gaps and outline future research directions.</td></tr>
+          <tr><th scope="row">Case study</th><td>Practice-oriented or research-based cases on real-world organisational, industry, policy or entrepreneurial contexts. Describe the context, the problem or decision situation, discussion questions where relevant, and managerial or policy implications. Teaching cases should be submitted with teaching notes.</td></tr>
+          <tr><th scope="row">Manuscript format</th><td>MS Word; Times New Roman, 12-point; 1.5 line spacing; 1-inch (2.5 cm) margins on all sides.</td></tr>
+          <tr><th scope="row">Title page</th><td>Submitted separately, with the paper title, author names, affiliations, and the corresponding author's email and contact number. Author details must not appear in the main manuscript.</td></tr>
+          <tr><th scope="row">Keywords</th><td>Maximum of 5 keywords.</td></tr>
+          <tr><th scope="row">Review process</th><td>All submissions undergo double-blind peer review. Authors must clearly indicate the conference track.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="head"><p class="label">How to submit</p><h2>Five steps, with a guide at your side</h2><p>The portal saves your draft at every step, so you can stop and come back.</p></div>
+    <div class="guide">
+      <div class="prof">
+        <svg role="img" aria-label="Prof. Know-a-Lot, the portal's wizard guide"><use href="#wizard"/></svg>
+        <b>Prof. Know-a-Lot</b>
+        <q>An abstract is a promise. Keep it short, and keep it true.</q>
+      </div>
+      <ol class="steps">
+        <li><strong>Create your account</strong><span>Sign up with your email and confirm it from your inbox. One account covers every paper you submit.</span></li>
+        <li><strong>Complete your profile</strong><span>Add your institution, department and research areas. You can also volunteer as a reviewer there.</span></li>
+        <li><strong>Start a submission and pick your track</strong><span>Choose one of the eight tracks and the type: abstract, extended abstract, full paper, review paper, case study or poster.</span></li>
+        <li><strong>Add your abstract, keywords and co-authors</strong><span>List authors in order and mark the corresponding author. Reviewers never see author details.</span></li>
+        <li><strong>Submit and note your paper ID</strong><span>You receive an ID such as ISBT5-FIN-001. Use it in every message about your paper, and return later to upload the full paper.</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="tint" id="fees">
+  <div class="wrap">
+    <div class="head"><p class="label">Registration</p><h2>Registration fees</h2><p>The conference is hosted in hybrid mode. The fee covers all conference sessions, the conference kit (including the Book of Abstracts and programme schedule), refreshments, and lunch on the conference days.</p></div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th scope="col">Research paper presentation</th><th scope="col">Indian participants</th><th scope="col">Foreign participants</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Academicians and professionals</th><td class="num">INR 2,950</td><td class="num">USD 50</td></tr>
+          <tr><th scope="row">Research scholars</th><td class="num">INR 1,770</td><td class="num">USD 30</td></tr>
+          <tr><th scope="row">Students (UG and PG)</th><td class="num">INR 885</td><td class="num">USD 15</td></tr>
+          <tr><th scope="row">Students (UG and PG), poster presentation</th><td class="num">Free</td><td class="num">USD 10</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <p><strong>Good to know.</strong> Acceptance of a paper implies that all authors register for the conference and at least one presents the paper. Certificates are issued to registered participants who present their research. Authors who wish to compete for the best paper awards and publication opportunities must submit a full paper.</p>
+    </div>
+    <p style="margin-top:14px;font-size:14.5px;color:var(--grey)">This portal handles paper submission and review. Registration and payment instructions come from the organising committee.</p>
+  </div>
+</section>
+
+<section id="awards">
+  <div class="wrap">
+    <div class="head"><p class="label">Awards and publication</p><h2>Recognition for the best work</h2><p>Cash prizes and brand vouchers for presenters of selected best papers and posters.</p></div>
+    <div class="awards">
+      <div class="award"><h3>Best paper awards</h3><ol><li>First prize: INR 10,000</li><li>Second prize: INR 6,000</li><li>Third prize: INR 4,000</li></ol></div>
+      <div class="award"><h3>Poster presentation awards</h3><ol><li>First prize: INR 3,000</li><li>Second prize: INR 2,000</li></ol></div>
+    </div>
+    <div class="note"><p><strong>Publication opportunities.</strong> Details will be announced by the organising committee.</p></div>
+  </div>
+</section>
+
+<section class="tint" id="committee">
+  <div class="wrap">
+    <div class="head"><p class="label">Conference committee</p><h2>The people behind ISBT 2027</h2></div>
+    <h3 class="sub">Advisory board</h3>
+    <ul class="people">
+      <li><img src="assets/team/dhangayach.jpg" alt="" width="240" height="240" loading="lazy"><span class="role">Chief Patron</span><b>Dr. G. S. Dhangayach</b><span>President, The ICFAI University Jaipur</span></li>
+      <li><img src="assets/team/ss-jain.jpg" alt="" width="240" height="240" loading="lazy"><span class="role">Chief Advisor</span><b>Prof. (Dr.) S. S. Jain</b><span>Senior Advisor, The ICFAI University Jaipur</span></li>
+      <li><img src="assets/team/nesamoorthy.jpg" alt="" width="240" height="240" loading="lazy"><span class="role">Co-Patron</span><b>Prof. (Dr.) R. Nesamoorthy</b><span>Registrar, The ICFAI University Jaipur</span></li>
+    </ul>
+    <ul class="people duo">
+      <li><img src="assets/team/shweta-jain.jpg" alt="" width="240" height="240" loading="lazy"><span class="role">Conference Chair</span><b>Dr. Shweta Jain</b><span>Director, ICFAI Business School Jaipur</span></li>
+      <li><img src="assets/team/archana-rathore.jpg" alt="" width="240" height="240" loading="lazy"><span class="role">Conference Co-Chair</span><b>Prof. (Dr.) Archana Rathore</b><span>Dean, ICFAI Business School Jaipur</span></li>
+    </ul>
+    <h3 class="sub">Conference convenors</h3>
+    <ul class="people">
+      <li><img src="assets/team/sumedha-soni.jpg" alt="" width="240" height="240" loading="lazy"><span class="role">Convenor</span><b>Dr. Sumedha Soni</b><span>ICFAI Business School Jaipur</span></li>
+      <li><img src="assets/team/vinay-khandelwal.jpg" alt="" width="240" height="240" loading="lazy"><span class="role">Convenor</span><b>Dr. Vinay Khandelwal</b><span>ICFAI Business School Jaipur</span></li>
+      <li><img src="assets/team/piyush-jhalani.jpg" alt="" width="240" height="240" loading="lazy"><span class="role">Convenor</span><b>Dr. Piyush Jhalani</b><span>ICFAI Business School Jaipur</span></li>
+    </ul>
+  </div>
+</section>
+
+<section id="hosts">
+  <div class="wrap two">
+    <div>
+      <div class="head" style="margin-bottom:14px"><p class="label">About IBS Jaipur</p></div>
+      <p>ICFAI Business School, Jaipur (IBS) is committed to quality education and training in management. It helps students develop business and personal competence through exposure to real business problems, case-based analysis and industrial interaction.</p>
+      <p>IBS Jaipur, a constituent of The ICFAI University Jaipur, offers full-time degree programmes at Bachelor's, Master's and Doctoral level in Management and Commerce. It was ranked 1st in Rajasthan among "Outstanding B-Schools" in the GHRDC B-School Rankings 2024, and 3rd in Rajasthan in the IIRF Rankings 2024.</p>
+    </div>
+    <div>
+      <div class="head" style="margin-bottom:14px"><p class="label">About The ICFAI University, Jaipur</p></div>
+      <p>The ICFAI University, Jaipur was established under The ICFAI University, Jaipur Act, 2011 (Act No. 26 of 2011), passed by the Legislative Assembly of Rajasthan. It is sponsored by The ICFAI Society, a not-for-profit educational society established in 1984.</p>
+      <p>The University is empowered to award degrees under Section 22 of the UGC Act, 1956, and is a member of the Association of Indian Universities (AIU), New Delhi.</p>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <h2>Ready when you are</h2>
+    <p>Abstracts are due by 15 February 2027. Start a draft today and finish it whenever you like.</p>
+    <a class="btn" href="/portal/#/call/ISBT5">Submit your abstract</a>
+  </div>
+</section>
 </main>
-<footer class="wrap foot">Submissions for this conference are handled on the WiseWizard submission portal. Questions about the conference itself should go to the organising committee.</footer>
+
+<footer>
+  <div class="wrap">Paper submissions for ISBT 2027 are handled on the WiseWizard submission portal, whose guide is Prof. Know-a-Lot. For questions about the conference itself, please contact the organising committee at ICFAI Business School, Jaipur.</div>
+</footer>
+
+<script>
+(function () {
+  // Gentle fade-in as sections scroll into view. Skipped for people who prefer reduced motion.
+  if (!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var items = document.querySelectorAll('.head, .dates li, .track, .scroll, .prof, .steps li, .award, .people li, .note');
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { rootMargin: '0px 0px -8% 0px' });
+  Array.prototype.forEach.call(items, function (el) {
+    var i = Array.prototype.indexOf.call(el.parentNode.children, el);
+    el.style.transitionDelay = Math.min(i, 4) * 70 + 'ms';
+    el.classList.add('rv'); io.observe(el);
+  });
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="/portal/config.js"></script>
 <script>
 (function () {
   'use strict';
-  var CODE = 'ISBT5';
-  var body = document.getElementById('body'), when = document.getElementById('when');
-  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
-  function soon(msg) { when.textContent = msg; }
-  if (!window.supabase) return soon('The portal could not load. Please refresh the page.');
+  var live = document.getElementById('live'), cta = document.getElementById('cta');
+  if (!window.supabase || !window.PORTAL_CONFIG) return;
   var sb = window.supabase.createClient(window.PORTAL_CONFIG.url, window.PORTAL_CONFIG.key);
-  sb.from('venues').select('code,name,description,closes_on,tracks(code,name)').eq('code', CODE).eq('status', 'open').maybeSingle()
-    .then(function (r) {
-      var v = r.data;
-      if (r.error || !v) return soon('Submissions are not open yet. Please check back soon.');
-      document.getElementById('name').textContent = v.name;
-      soon(v.closes_on ? 'Submissions close on ' + new Date(v.closes_on).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) + '.' : 'Submissions are open.');
-      var card = el('div', 'card stack');
-      if (v.description) { var d = el('p', null, v.description); d.style.whiteSpace = 'pre-line'; card.appendChild(d); }
-      if (v.tracks.length) {
-        card.appendChild(el('h2', null, 'Tracks'));
-        var row = el('div', 'row');
-        v.tracks.forEach(function (t) { row.appendChild(el('span', 'tag', t.code + ' · ' + t.name)); });
-        card.appendChild(row);
-      }
-      var cta = el('a', 'btn', 'Submit your paper'); cta.href = '/portal/#/call/' + CODE;
-      var wrap = el('div'); wrap.appendChild(cta); card.appendChild(wrap);
-      body.appendChild(card);
-    });
+  sb.from('venues').select('status,closes_on').eq('code', 'ISBT5').maybeSingle().then(function (r) {
+    if (r.error) return;
+    var v = r.data, today = new Date().toISOString().slice(0, 10);
+    if (v && v.status === 'open' && (!v.closes_on || v.closes_on >= today)) {
+      live.textContent = 'Submissions are open. Abstracts are due by 15 February 2027.';
+    } else {
+      live.textContent = 'Submissions are not open at the moment. You can still sign in to track a paper.';
+      cta.textContent = 'Go to the portal'; cta.href = '/portal/';
+    }
+  });
 })();
 </script>
 </body>

@@ -16,7 +16,20 @@
     revision_requested: ['Revision requested', 'warn'], revision_submitted: ['Revision submitted', ''],
     accepted: ['Accepted', 'good'], rejected: ['Not accepted', 'bad'], withdrawn: ['Withdrawn', 'draft']
   };
-  var ARTICLE = { research_article: 'Research article', case_study: 'Case study', short_case: 'Short or graphic case', conference_paper: 'Conference paper' };
+  var ARTICLE = { research_article: 'Research article', case_study: 'Case study', short_case: 'Short or graphic case', conference_paper: 'Conference paper',
+    abstract: 'Abstract', extended_abstract: 'Extended abstract', full_paper: 'Full paper', review_paper: 'Review paper', poster: 'Poster presentation' };
+  var JOURNAL_TYPES = ['research_article', 'case_study', 'short_case'];
+  var CONF_TYPES = ['abstract', 'extended_abstract', 'full_paper', 'review_paper', 'case_study', 'poster'];
+  var GUIDE = {
+    abstract: '200 to 250 words covering the objective, methodology, key findings and implications. Type it in the abstract box; no file is needed at this stage.',
+    extended_abstract: '500 to 2,000 words with background, problem statement, objectives, methodology, preliminary findings and key contributions. Upload it as a file.',
+    full_paper: '4,000 to 9,000 words, excluding references and appendices. Upload the blinded manuscript and a separate title page.',
+    review_paper: 'Systematic, bibliometric or narrative reviews. State the review protocol, synthesise the literature, identify gaps and outline future directions.',
+    case_study: 'Describe the context, the problem or decision situation, and the implications. Teaching cases should come with teaching notes.',
+    poster: 'Describe your poster in the abstract box. No file is needed at this stage.',
+    research_article: 'Upload the blinded manuscript and a separate title page.',
+    short_case: 'A short or graphic case on an Indian business. Upload the blinded manuscript and a separate title page.'
+  };
   var VENUE = { journal_issue: 'Journal issue', special_call: 'Special call for papers', conference: 'Partner conference' };
   var KIND = { blinded_manuscript: 'Blinded manuscript', title_page: 'Title page', supplementary: 'Supplementary file', similarity_report: 'Similarity report' };
 
@@ -248,7 +261,7 @@
   async function startSubmission(v) {
     if (!session) { after = location.hash; return go('#/login', 'Sign in or create an account to start a submission.'); }
     if (!v.tracks.length) throw new Error('This call has no tracks yet. Please try again later.');
-    var s = ok(await sb.from('submissions').insert({ venue_id: v.id, track_id: v.tracks[0].id }).select('id').single());
+    var s = ok(await sb.from('submissions').insert({ venue_id: v.id, track_id: v.tracks[0].id, article_type: v.type === 'conference' ? 'abstract' : 'research_article' }).select('id').single());
     ok(await sb.from('submission_authors').insert({
       submission_id: s.id, position: 1, full_name: (profile && profile.full_name) || session.user.email,
       email: session.user.email, affiliation: profile && profile.institution, country: profile && profile.country, is_corresponding: true
@@ -258,7 +271,7 @@
 
   // ---------- submission editor ----------
   async function submissionView(id) {
-    var s = ok(await sb.from('submissions').select('*, venues(id,code,name,status,closes_on)').eq('id', id).maybeSingle());
+    var s = ok(await sb.from('submissions').select('*, venues(id,code,name,type,status,closes_on)').eq('id', id).maybeSingle());
     if (!s) { show(h('div', { class: 'empty' }, 'That submission was not found.')); return; }
     var authors = ok(await sb.from('submission_authors').select('*').eq('submission_id', id).order('position'));
     var tracks = ok(await sb.from('tracks').select('id,code,name').eq('venue_id', s.venue_id).order('code'));
@@ -267,7 +280,15 @@
 
     var trackOpts = {}; tracks.forEach(function (t) { trackOpts[t.id] = t.code + ' · ' + t.name; });
     var track = select(trackOpts, s.track_id, { disabled: off });
-    var type = select(ARTICLE, s.article_type, { disabled: off });
+    var isConf = s.venues.type === 'conference';
+    var typeOpts = {};
+    (isConf ? CONF_TYPES : JOURNAL_TYPES).forEach(function (k) { typeOpts[k] = ARTICLE[k]; });
+    if (!typeOpts[s.article_type]) typeOpts[s.article_type] = ARTICLE[s.article_type];
+    var type = select(typeOpts, s.article_type, { disabled: off });
+    var guide = h('p', { class: 'small muted' });
+    function drawGuide() { guide.textContent = GUIDE[type.value] || ''; }
+    type.addEventListener('change', drawGuide); drawGuide();
+    var mode = select({ '': 'Choose one', on_site: 'On-site (in person)', online: 'Online' }, s.attendance_mode || '', { disabled: off });
     var title = h('input', { type: 'text', value: s.title, disabled: off, maxlength: '300' });
     var abstract = h('textarea', { disabled: off }); abstract.value = s.abstract;
     var count = h('p', { class: 'count' });
@@ -341,9 +362,12 @@
           affiliation: a.affiliation || null, country: a.country || null, is_corresponding: !!a.is_corresponding };
       });
       if (list.filter(function (a) { return a.is_corresponding; }).length !== 1) throw new Error('Mark exactly one corresponding author.');
+      var kw = keywords.value.split(',').map(function (k) { return k.trim(); }).filter(Boolean);
+      if (isConf && kw.length > 5) throw new Error('Please use at most 5 keywords.');
       ok(await sb.from('submissions').update({
+        attendance_mode: isConf ? (mode.value || null) : null,
         track_id: track.value, article_type: type.value, title: title.value.trim(), abstract: abstract.value.trim(),
-        keywords: keywords.value.split(',').map(function (k) { return k.trim(); }).filter(Boolean),
+        keywords: kw,
         declared_original: d1.checked, declared_ai_use: d2.checked, declared_consent: d3.checked,
         ai_use_statement: ai.value.trim() || null
       }).eq('id', id));
@@ -375,9 +399,10 @@
         h('p', { class: 'muted' }, 'Version ' + s.version + (s.submitted_at ? ' · Submitted ' + day(s.submitted_at) : ''))), tag(s.status)),
       off ? h('div', { class: 'card' }, h('p', null, 'This submission is with the editorial office and can no longer be edited here.')) : null,
       h('div', { class: 'card stack' }, h('h2', null, 'Manuscript details'),
-        h('div', { class: 'grid2' }, field('Track', track), field('Article type', type)),
+        h('div', { class: 'grid2' }, field('Track', track), field(isConf ? 'Submission type' : 'Article type', type)), guide,
+        isConf ? field('How do you plan to take part?', mode) : null,
         field('Title', title), h('div', null, field('Abstract', abstract), count),
-        field('Keywords', keywords, 'Separate with commas.')),
+        field('Keywords', keywords, isConf ? 'Up to 5, separated with commas.' : 'Separate with commas.')),
       h('div', { class: 'card stack' }, h('h2', null, 'Authors'),
         h('p', { class: 'small muted' }, 'List authors in the order they should appear. Reviewers never see this section.'),
         authorBox,
@@ -385,7 +410,7 @@
           authors.push({ full_name: '', email: '', affiliation: '', country: '', is_corresponding: false }); drawAuthors();
         } }, 'Add co-author')) : null),
       h('div', { class: 'card stack' }, h('h2', null, 'Files'),
-        h('p', { class: 'small muted' }, 'Upload a blinded manuscript with no author names or affiliations, and a separate title page. PDF or Word, up to 20 MB each.'),
+        h('p', { class: 'small muted' }, 'Upload a blinded manuscript with no author names or affiliations, and a separate title page. PDF or Word, up to 20 MB each.' + (isConf ? ' Format: MS Word, Times New Roman 12 pt, 1.5 line spacing, 1-inch margins.' : '')),
         fileBox,
         editable ? h('div', { class: 'grid2' }, field('File type', kind), field('File', picker)) : null,
         editable ? h('div', null, upBtn) : null),
@@ -401,28 +426,64 @@
   // ---------- profile ----------
   function profileView() {
     var p = profile || {};
-    var f = {
-      full_name: h('input', { type: 'text', value: p.full_name || '', required: true }),
-      designation: h('input', { type: 'text', value: p.designation || '' }),
-      institution: h('input', { type: 'text', value: p.institution || '' }),
-      country: h('input', { type: 'text', value: p.country || '' }),
-      phone: h('input', { type: 'tel', value: p.phone || '' }),
-      orcid: h('input', { type: 'text', value: p.orcid || '', placeholder: '0000-0000-0000-0000' })
+    function txt(k, attrs) { var a = attrs || {}; a.type = a.type || 'text'; a.value = p[k] == null ? '' : p[k]; return h('input', a); }
+    function area(k, px) { var t = h('textarea', { style: 'min-height:' + (px || 90) + 'px' }); t.value = p[k] || ''; return t; }
+    function list(k, ph) { return h('input', { type: 'text', value: (p[k] || []).join(', '), placeholder: ph || '' }); }
+    var text = {
+      full_name: txt('full_name', { required: true }), designation: txt('designation'), department: txt('department'),
+      institution: txt('institution'), city: txt('city'), country: txt('country'), phone: txt('phone', { type: 'tel' }),
+      orcid: txt('orcid', { placeholder: '0000-0000-0000-0000' }), scholar_url: txt('scholar_url', { type: 'url', placeholder: 'https://' }),
+      bio: area('bio', 100), review_experience: area('review_experience', 80)
     };
+    var pick = {
+      salutation: select({ '': 'Choose', 'Dr.': 'Dr.', 'Prof.': 'Prof.', 'Mr.': 'Mr.', 'Ms.': 'Ms.', 'Mx.': 'Mx.' }, p.salutation || ''),
+      highest_qualification: select({ '': 'Choose', 'Doctorate (PhD, FPM or equivalent)': 'Doctorate (PhD, FPM or equivalent)', 'Pursuing a doctorate': 'Pursuing a doctorate',
+        "Master's degree": "Master's degree", "Bachelor's degree": "Bachelor's degree", 'Other': 'Other' }, p.highest_qualification || '')
+    };
+    var lists = {
+      research_areas: list('research_areas', 'e.g. sustainable finance, ESG reporting, fintech'),
+      methods: list('methods', 'e.g. PLS-SEM, panel data, case study, bibliometrics'),
+      review_interests: list('review_interests', 'e.g. corporate governance, consumer analytics')
+    };
+    var nums = { experience_years: txt('experience_years', { type: 'number', min: '0', max: '70' }), reviews_per_year: txt('reviews_per_year', { type: 'number', min: '0', max: '50' }) };
+    var willing = h('input', { type: 'checkbox', checked: !!p.willing_to_review });
+    willing.id = 'f' + (++uid);
+    var revBox = h('div', { class: 'stack' },
+      field('Topics you are comfortable reviewing', lists.review_interests, 'Separate with commas. Editors use this to match papers to you.'),
+      h('div', { class: 'grid2' }, field('Papers you can review in a year', nums.reviews_per_year), field('Methods you can assess', lists.methods, 'Separate with commas.')),
+      field('Reviewing experience (optional)', text.review_experience, 'Journals or conferences you have reviewed for, if any. First-time reviewers are welcome.'));
+    function toggle() { revBox.style.display = willing.checked ? '' : 'none'; }
+    willing.addEventListener('change', toggle); toggle();
     var btn = h('button', { class: 'btn', type: 'submit' }, 'Save profile');
     show(h('div', { class: 'head' }, h('div', null, h('h1', null, 'My profile'),
         h('p', { class: 'muted' }, 'Roles: ' + (p.roles || ['author']).join(', ') + ' · ' + (p.email || '')))),
-      h('form', { class: 'card stack', onsubmit: function (e) {
+      h('form', { onsubmit: function (e) {
         e.preventDefault();
         busy(btn, async function () {
-          var upd = {}; Object.keys(f).forEach(function (k) { upd[k] = f[k].value.trim() || (k === 'full_name' ? '' : null); });
+          var upd = { willing_to_review: willing.checked }, k, n;
+          for (k in text) upd[k] = text[k].value.trim() || (k === 'full_name' ? '' : null);
+          for (k in pick) upd[k] = pick[k].value || null;
+          for (k in lists) upd[k] = lists[k].value.split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+          for (k in nums) { n = parseInt(nums[k].value, 10); upd[k] = isNaN(n) ? null : n; }
           ok(await sb.from('profiles').update(upd).eq('id', session.user.id));
           await loadProfile(); drawNav('#/profile'); notice('Profile saved.');
         });
       } },
-        h('div', { class: 'grid2' }, field('Full name', f.full_name), field('Designation', f.designation)),
-        h('div', { class: 'grid2' }, field('Institution', f.institution), field('Country', f.country)),
-        h('div', { class: 'grid2' }, field('Phone (optional)', f.phone), field('ORCID (optional)', f.orcid)),
+        h('div', { class: 'card stack' }, h('h2', null, 'About you'),
+          h('div', { class: 'grid2' }, field('Title', pick.salutation), field('Full name', text.full_name)),
+          h('div', { class: 'grid2' }, field('Designation', text.designation, 'For example: Assistant Professor, Research Scholar, Manager.'), field('Department or area', text.department)),
+          h('div', { class: 'grid2' }, field('Institution or organisation', text.institution), field('City', text.city)),
+          h('div', { class: 'grid2' }, field('Country', text.country), field('Phone (optional)', text.phone))),
+        h('div', { class: 'card stack' }, h('h2', null, 'Academic background'),
+          h('div', { class: 'grid2' }, field('Highest qualification', pick.highest_qualification), field('Years of research or teaching experience', nums.experience_years)),
+          h('div', { class: 'grid2' }, field('ORCID (optional)', text.orcid), field('Google Scholar or profile link (optional)', text.scholar_url)),
+          field('Short bio (optional)', text.bio, 'Two or three sentences. Shown to editors only.')),
+        h('div', { class: 'card stack' }, h('h2', null, 'Research interests'),
+          field('Your research areas', lists.research_areas, 'Separate with commas.')),
+        h('div', { class: 'card stack' }, h('h2', null, 'Reviewing'),
+          h('p', { class: 'muted' }, 'Good reviewers make good journals. If you are willing, editors may invite you for a few papers a year in your own areas. You can always decline an invitation.'),
+          h('div', { class: 'check' }, willing, h('label', { for: willing.id }, 'Yes, I would like to be considered as a reviewer.')),
+          revBox),
         h('div', null, btn)));
   }
 
@@ -519,7 +580,7 @@
   }
   async function adminPeople() {
     if (!staffOnly('admin')) return;
-    var people = ok(await sb.from('profiles').select('id,full_name,email,institution,roles').order('created_at'));
+    var people = ok(await sb.from('profiles').select('id,full_name,email,institution,department,roles,willing_to_review,review_interests').order('created_at'));
     show(h('div', { class: 'head' }, h('div', null, h('h1', null, 'People'),
         h('p', { class: 'muted' }, 'Everyone is an author. Tick extra roles to make someone a reviewer, editor or admin.'))),
       h('div', { class: 'card scroll' }, h('table', null,
@@ -535,8 +596,9 @@
               } });
             return h('td', null, c);
           }
-          return h('tr', null, h('td', null, h('div', { class: 't' }, p.full_name || '(no name yet)'), h('div', { class: 'small muted' }, p.email)),
-            h('td', null, p.institution || ''), box('reviewer'), box('editor'), box('admin'));
+          return h('tr', null, h('td', null, h('div', { class: 't' }, p.full_name || '(no name yet)'), h('div', { class: 'small muted' }, p.email),
+              p.willing_to_review ? h('div', { class: 'small' }, h('span', { class: 'tag good' }, 'Wants to review'), ' ', (p.review_interests || []).join(', ')) : null),
+            h('td', null, [p.department, p.institution].filter(Boolean).join(', ')), box('reviewer'), box('editor'), box('admin'));
         })))));
   }
 })();
