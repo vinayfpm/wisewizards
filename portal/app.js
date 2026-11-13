@@ -16,9 +16,22 @@
     revision_requested: ['Revision requested', 'warn'], revision_submitted: ['Revision submitted', ''],
     accepted: ['Accepted', 'good'], rejected: ['Not accepted', 'bad'], withdrawn: ['Withdrawn', 'draft']
   };
-  var ARTICLE = { research_article: 'Research article', case_study: 'Case study', short_case: 'Short or graphic case', conference_paper: 'Conference paper',
+  var ARTICLE = { research_article: 'Research article', case_study: 'Case study', short_case: 'Short case', conference_paper: 'Conference paper',
+    research_note: 'Research note', perspective: 'Perspective (by invitation)', graphic_case: 'Graphic teaching case',
     abstract: 'Abstract', extended_abstract: 'Extended abstract', full_paper: 'Full paper', review_paper: 'Review paper', poster: 'Poster presentation' };
-  var JOURNAL_TYPES = ['research_article', 'case_study', 'short_case'];
+  var JOURNAL_TYPES = ['research_article', 'review_paper', 'research_note', 'perspective', 'case_study', 'short_case', 'graphic_case'];
+  // Journal tracks offer only the article types that belong to them (IBC: RES, TC, GC).
+  var TRACK_TYPES = { RES: ['research_article', 'review_paper', 'research_note', 'perspective'], TC: ['case_study', 'short_case'], GC: ['graphic_case'] };
+  var JLABEL = { case_study: 'Teaching case' };
+  var JGUIDE = {
+    research_article: '6,000 to 9,000 words, excluding references. Original empirical or conceptual work with a clear theoretical contribution. Upload the blinded manuscript and a separate title page.',
+    review_paper: '7,000 to 10,000 words. A systematic, bibliometric or integrative review that concludes with a research agenda. Upload the blinded manuscript and a separate title page.',
+    research_note: '3,000 to 4,000 words: a focused finding, a new dataset or a replication. Upload the blinded manuscript and a separate title page.',
+    perspective: '2,000 to 3,000 words. Perspectives are published by invitation of the editors. Upload the blinded manuscript and a separate title page.',
+    case_study: '3,000 to 6,000 words plus exhibits, built around a clear decision point. Upload the blinded case, a title page and the teaching note (2,500 to 5,000 words). Field cases also need a signed release, uploaded as a supplementary file.',
+    short_case: '1,500 to 2,500 words for a single class discussion or examination. Upload the blinded case, a title page and its teaching note.',
+    graphic_case: '12 to 30 pages of sequential art. For first submission, upload the full script with a storyboard or rough panels as one PDF, a title page and the teaching note. Final artwork follows acceptance in principle.'
+  };
   var CONF_TYPES = ['abstract', 'extended_abstract', 'full_paper', 'review_paper', 'case_study', 'poster'];
   var GUIDE = {
     abstract: '200 to 250 words covering the objective, methodology, key findings and implications. Type it in the abstract box; no file is needed at this stage.',
@@ -30,8 +43,8 @@
     research_article: 'Upload the blinded manuscript and a separate title page.',
     short_case: 'A short or graphic case on an Indian business. Upload the blinded manuscript and a separate title page.'
   };
-  var VENUE = { journal_issue: 'Journal issue', special_call: 'Special call for papers', conference: 'Partner conference' };
-  var KIND = { blinded_manuscript: 'Blinded manuscript', title_page: 'Title page', supplementary: 'Supplementary file', similarity_report: 'Similarity report' };
+  var VENUE = { journal_issue: 'Journal', special_call: 'Special call for papers', conference: 'Partner conference' };
+  var KIND = { blinded_manuscript: 'Blinded manuscript', title_page: 'Title page', supplementary: 'Supplementary file', similarity_report: 'Similarity report', teaching_note: 'Teaching note' };
 
   // ---------- small helpers ----------
   function h(tag, attrs) {
@@ -124,7 +137,7 @@
     [/^#\/?$/, function () { return session ? dashboard() : loginView(); }],
     [/^#\/login$/, function () { return session ? go('#/') : loginView(); }],
     [/^#\/signup$/, function () { return session ? go('#/') : signupView(); }], [/^#\/calls$/, callsView],
-    [/^#\/call\/([A-Z0-9]{2,10})$/, callView],
+    [/^#\/call\/([A-Z0-9]{2,10})(?:\/([A-Z]{2,5}))?$/, callView],
     [/^#\/profile$/, guard(profileView)],
     [/^#\/submission\/([0-9a-f-]{36})$/, guard(submissionView)],
     [/^#\/admin\/calls$/, guard(adminCalls)], [/^#\/admin\/submissions$/, guard(adminSubmissions)],
@@ -140,7 +153,7 @@
       m = hash.match(routes[i][0]);
       if (m) {
         drawNav(hash);
-        try { await routes[i][1](m[1]); } catch (e) { fail(e); }
+        try { await routes[i][1](m[1], m[2]); } catch (e) { fail(e); }
         return;
       }
     }
@@ -242,15 +255,17 @@
     venues.forEach(function (v) { out.push(callCard(v)); });
     show.apply(null, out);
   }
-  async function callView(code) {
+  async function callView(code, trk) {
     var v = ok(await sb.from('venues')
       .select('id,code,name,type,partner_name,description,opens_on,closes_on,tracks(id,code,name)')
       .eq('code', code).eq('status', 'open').maybeSingle());
-    show(v ? callCard(v) : h('div', { class: 'empty' }, 'This call is not open for submissions right now.'),
+    show(v ? callCard(v, trk) : h('div', { class: 'empty' }, 'This call is not open for submissions right now.'),
       h('p', null, h('a', { href: '#/calls' }, 'See all open calls')));
   }
-  function callCard(v) {
-      var btn = h('button', { class: 'btn', type: 'button', onclick: function () { busy(btn, function () { return startSubmission(v); }); } }, 'Start a submission');
+  function callCard(v, trk) {
+      var pick = trk && v.tracks.filter(function (t) { return t.code === trk; })[0];
+      var btn = h('button', { class: 'btn', type: 'button', onclick: function () { busy(btn, function () { return startSubmission(v, pick); }); } },
+        pick ? 'Start a submission: ' + pick.name : 'Start a submission');
       return h('div', { class: 'card stack' },
         h('div', null, h('span', { class: 'label' }, VENUE[v.type] + (v.partner_name ? ' · with ' + v.partner_name : '')), h('h2', null, v.name)),
         v.description ? h('p', { style: 'white-space:pre-line' }, v.description) : null,
@@ -258,10 +273,12 @@
         h('div', { class: 'row' }, v.tracks.map(function (t) { return h('span', { class: 'tag' }, t.code + ' · ' + t.name); })),
         h('div', null, btn));
   }
-  async function startSubmission(v) {
+  async function startSubmission(v, pick) {
     if (!session) { after = location.hash; return go('#/login', 'Sign in or create an account to start a submission.'); }
     if (!v.tracks.length) throw new Error('This call has no tracks yet. Please try again later.');
-    var s = ok(await sb.from('submissions').insert({ venue_id: v.id, track_id: v.tracks[0].id, article_type: v.type === 'conference' ? 'abstract' : 'research_article' }).select('id').single());
+    var t = pick || v.tracks.slice().sort(function (a, b) { return a.code === 'RES' ? -1 : b.code === 'RES' ? 1 : a.code < b.code ? -1 : 1; })[0];
+    var first = v.type === 'conference' ? 'abstract' : ((TRACK_TYPES[t.code] || ['research_article'])[0]);
+    var s = ok(await sb.from('submissions').insert({ venue_id: v.id, track_id: t.id, article_type: first }).select('id').single());
     ok(await sb.from('submission_authors').insert({
       submission_id: s.id, position: 1, full_name: (profile && profile.full_name) || session.user.email,
       email: session.user.email, affiliation: profile && profile.institution, country: profile && profile.country, is_corresponding: true
@@ -281,13 +298,21 @@
     var trackOpts = {}; tracks.forEach(function (t) { trackOpts[t.id] = t.code + ' · ' + t.name; });
     var track = select(trackOpts, s.track_id, { disabled: off });
     var isConf = s.venues.type === 'conference';
-    var typeOpts = {};
-    (isConf ? CONF_TYPES : JOURNAL_TYPES).forEach(function (k) { typeOpts[k] = ARTICLE[k]; });
-    if (!typeOpts[s.article_type]) typeOpts[s.article_type] = ARTICLE[s.article_type];
-    var type = select(typeOpts, s.article_type, { disabled: off });
+    var trackCode = {}; tracks.forEach(function (t) { trackCode[t.id] = t.code; });
+    var type = h('select', { disabled: off });
     var guide = h('p', { class: 'small muted' });
-    function drawGuide() { guide.textContent = GUIDE[type.value] || ''; }
-    type.addEventListener('change', drawGuide); drawGuide();
+    function drawGuide() { guide.textContent = (!isConf && JGUIDE[type.value]) || GUIDE[type.value] || ''; }
+    function fillTypes(keep) {
+      var list = (isConf ? CONF_TYPES : (TRACK_TYPES[trackCode[track.value]] || JOURNAL_TYPES)).slice();
+      if (off && list.indexOf(keep) < 0) list.push(keep);
+      type.replaceChildren.apply(type, list.map(function (k) {
+        return h('option', { value: k, selected: k === keep }, (!isConf && JLABEL[k]) || ARTICLE[k] || k);
+      }));
+      drawGuide();
+    }
+    fillTypes(s.article_type);
+    type.addEventListener('change', drawGuide);
+    track.addEventListener('change', function () { fillTypes(type.value); });
     var mode = select({ '': 'Choose one', on_site: 'On-site (in person)', online: 'Online' }, s.attendance_mode || '', { disabled: off });
     var title = h('input', { type: 'text', value: s.title, disabled: off, maxlength: '300' });
     var abstract = h('textarea', { disabled: off }); abstract.value = s.abstract;
@@ -341,7 +366,10 @@
       })) : h('div', { class: 'empty' }, 'No files uploaded yet.'));
     }
     await drawFiles();
-    var kind = select({ blinded_manuscript: KIND.blinded_manuscript, title_page: KIND.title_page, supplementary: KIND.supplementary }, 'blinded_manuscript');
+    var kindOpts = { blinded_manuscript: KIND.blinded_manuscript, title_page: KIND.title_page };
+    if (!isConf) kindOpts.teaching_note = KIND.teaching_note;
+    kindOpts.supplementary = KIND.supplementary;
+    var kind = select(kindOpts, 'blinded_manuscript');
     var picker = h('input', { type: 'file', accept: '.pdf,.doc,.docx' });
     var upBtn = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
       busy(upBtn, async function () {
@@ -410,7 +438,7 @@
           authors.push({ full_name: '', email: '', affiliation: '', country: '', is_corresponding: false }); drawAuthors();
         } }, 'Add co-author')) : null),
       h('div', { class: 'card stack' }, h('h2', null, 'Files'),
-        h('p', { class: 'small muted' }, 'Upload a blinded manuscript with no author names or affiliations, and a separate title page. PDF or Word, up to 20 MB each.' + (isConf ? ' Format: MS Word, Times New Roman 12 pt, 1.5 line spacing, 1-inch margins.' : '')),
+        h('p', { class: 'small muted' }, 'Upload a blinded manuscript with no author names or affiliations, and a separate title page. PDF or Word, up to 20 MB each.' + (isConf ? ' Format: MS Word, Times New Roman 12 pt, 1.5 line spacing, 1-inch margins.' : ' Teaching cases also need a teaching note, which only verified instructors will see once published.')),
         fileBox,
         editable ? h('div', { class: 'grid2' }, field('File type', kind), field('File', picker)) : null,
         editable ? h('div', null, upBtn) : null),
