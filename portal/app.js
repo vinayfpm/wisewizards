@@ -87,7 +87,7 @@
     return s;
   }
   function hasRole(r) { return !!profile && profile.roles.indexOf(r) >= 0; }
-  function isStaff() { return hasRole('editor') || hasRole('admin'); }
+  function isStaff() { return isManager() || hasRole('associate_editor') || hasRole('editor') || hasRole('eic') || hasRole('maintenance') || myRoles.length > 0; }
   function day(d) { return d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; }
   function tag(status) { var s = STATUS[status] || [status, '']; return h('span', { class: 'tag ' + s[1] }, s[0]); }
   function ok(r) { if (r.error) throw r.error; return r.data; }
@@ -103,6 +103,7 @@
     if (!session) return;
     var r = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
     if (!r.error) profile = r.data;
+    await loadStaff();
   }
   sb.auth.onAuthStateChange(function (event, s) {
     session = s;
@@ -120,28 +121,51 @@
   // ---------- navigation ----------
   function drawNav(hash) {
     function link(to, text) { return h('a', { href: to, class: hash === to ? 'on' : null }, text); }
-    var items = [link('#/calls', 'Calls for papers')];
-    if (session) {
-      items.unshift(link('#/', 'My submissions'));
-      if (isStaff()) items.push(link('#/admin/submissions', 'All submissions'));
-      if (hasRole('admin')) items.push(link('#/admin/calls', 'Manage calls'), link('#/admin/people', 'People'));
-      items.push(link('#/profile', 'Profile'));
+    var items = [];
+    if (!session) {
+      items.push(link('#/calls', 'Calls for papers'), link('#/login', 'Sign in'));
+    } else {
+      var L = lens(), all = lenses(), staff = STAFF_LENSES.indexOf(L) >= 0;
+      if (L === 'author') items.push(link('#/', 'My submissions'), link('#/calls', 'Calls for papers'));
+      else if (L === 'reviewer') items.push(link('#/', 'My reviews'));
+      else {
+        items.push(link('#/', 'Desk'));
+        if (L === 'venue_editor' || L === 'eic' || L === 'manager') items.push(link('#/team', 'Editorial team'));
+        if (L === 'manager') items.push(link('#/admin/calls', 'Manage calls'), link('#/admin/people', 'People'));
+        if (L === 'manager' || L === 'maintenance') items.push(link('#/system', 'System'));
+      }
+      items.push(link('#/inbox', unread ? 'Inbox (' + unread + ')' : 'Inbox'), link('#/profile', 'Profile'));
+      if (all.length > 1) {
+        var opts = {}; all.forEach(function (k) { opts[k] = LENS[k]; });
+        var pick = select(opts, L, { 'aria-label': 'View as', onchange: function () { store('ww_lens', pick.value); go('#/'); } });
+        items.push(h('label', { class: 'viewas' }, h('span', null, 'View as'), pick));
+        if (staff) {
+          var vo = { '': 'All calls' }; scopedVenues(L).forEach(function (v) { vo[v.id] = v.code; });
+          var vp = select(vo, venueFilter(L), { 'aria-label': 'Call', onchange: function () { store('ww_venue', vp.value); route(); } });
+          items.push(vp);
+        }
+      }
       items.push(h('span', { class: 'who' }, (profile && profile.full_name) || session.user.email));
       items.push(h('button', { type: 'button', onclick: function () { sb.auth.signOut(); } }, 'Sign out'));
-    } else {
-      items.push(link('#/login', 'Sign in'));
     }
     nav.replaceChildren.apply(nav, items);
   }
+  function home() {
+    if (!session) return loginView();
+    var L = lens();
+    return L === 'author' ? dashboard() : L === 'reviewer' ? reviewsView() : deskView();
+  }
   var routes = [
-    [/^#\/?$/, function () { return session ? dashboard() : loginView(); }],
+    [/^#\/?$/, home],
     [/^#\/login$/, function () { return session ? go('#/') : loginView(); }],
     [/^#\/signup$/, function () { return session ? go('#/') : signupView(); }], [/^#\/calls$/, callsView],
     [/^#\/call\/([A-Z0-9]{2,10})(?:\/([A-Z]{2,5}))?$/, callView],
     [/^#\/profile$/, guard(profileView)],
     [/^#\/submission\/([0-9a-f-]{36})$/, guard(submissionView)],
-    [/^#\/admin\/calls$/, guard(adminCalls)], [/^#\/admin\/submissions$/, guard(adminSubmissions)],
-    [/^#\/admin\/people$/, guard(adminPeople)]
+    [/^#\/desk$/, guard(deskView)], [/^#\/paper\/([0-9a-f-]{36})$/, guard(paperView)],
+    [/^#\/reviews$/, guard(reviewsView)], [/^#\/review\/([0-9a-f-]{36})$/, guard(reviewForm)],
+    [/^#\/inbox$/, guard(inboxView)], [/^#\/team$/, guard(teamView)], [/^#\/system$/, guard(systemView)],
+    [/^#\/admin\/calls$/, guard(adminCalls)], [/^#\/admin\/people$/, guard(adminPeople)]
   ];
   function guard(fn) { return function (a) { return session ? fn(a) : loginView(); }; }
   async function route() {
@@ -214,7 +238,7 @@
   // ---------- author: dashboard ----------
   async function dashboard() {
     var rows = ok(await sb.from('submissions')
-      .select('id,paper_id,title,status,version,updated_at,venues(name),tracks(code)')
+      .select('id,paper_id,title,status,version,article_type,updated_at,venues(name,type),tracks(code)')
       .eq('owner_id', session.user.id).order('updated_at', { ascending: false }));
     var groups = [
       ['Drafts', ['draft']], ['Needs your revision', ['revision_requested']],
@@ -238,7 +262,7 @@
           h('div', null,
             h('div', { class: 't' }, r.title || 'Untitled draft'),
             h('div', { class: 'm' }, [r.paper_id, r.venues && r.venues.name, 'Version ' + r.version, 'Updated ' + day(r.updated_at)].filter(Boolean).join(' · '))),
-          h('div', { class: 'row' }, tag(r.status), h('a', { class: 'btn ghost tiny', href: '#/submission/' + r.id }, r.status === 'draft' || r.status === 'revision_requested' ? 'Continue' : 'View')));
+          h('div', { class: 'row' }, tag(r.status), h('a', { class: 'btn ghost tiny', href: '#/submission/' + r.id }, r.status === 'draft' || r.status === 'revision_requested' ? 'Continue' : (r.status === 'accepted' && r.article_type === 'abstract' && r.venues && r.venues.type === 'conference' ? 'Upload full paper' : 'View'))));
       })));
     });
     show.apply(null, out);
@@ -292,7 +316,9 @@
     if (!s) { show(h('div', { class: 'empty' }, 'That submission was not found.')); return; }
     var authors = ok(await sb.from('submission_authors').select('*').eq('submission_id', id).order('position'));
     var tracks = ok(await sb.from('tracks').select('id,code,name').eq('venue_id', s.venue_id).order('code'));
-    var editable = s.owner_id === session.user.id && (s.status === 'draft' || s.status === 'revision_requested');
+    var mineOwn = s.owner_id === session.user.id;
+    var fullStage = mineOwn && s.status === 'accepted' && s.article_type === 'abstract' && s.venues.type === 'conference';
+    var editable = mineOwn && (s.status === 'draft' || s.status === 'revision_requested' || fullStage);
     var off = !editable;
 
     var trackOpts = {}; tracks.forEach(function (t) { trackOpts[t.id] = t.code + ' · ' + t.name; });
@@ -378,7 +404,7 @@
         if (f.size > 20 * 1024 * 1024) throw new Error('Files can be up to 20 MB.');
         var path = id + '/' + Date.now() + '-' + f.name.replace(/[^A-Za-z0-9._-]+/g, '_');
         ok(await sb.storage.from('manuscripts').upload(path, f));
-        ok(await sb.from('submission_files').insert({ submission_id: id, kind: kind.value, version: s.version, storage_path: path, file_name: f.name, size_bytes: f.size }));
+        ok(await sb.from('submission_files').insert({ submission_id: id, kind: kind.value, version: s.status === 'draft' ? s.version : s.version + 1, storage_path: path, file_name: f.name, size_bytes: f.size }));
         picker.value = ''; notice('File uploaded.'); drawFiles();
       });
     } }, 'Upload');
@@ -410,6 +436,14 @@
         go('#/', 'Submitted. Your paper ID is ' + pid + '.');
       });
     } }, 'Submit manuscript');
+    var revBtn = h('button', { class: 'btn', type: 'button', onclick: function () {
+      busy(revBtn, async function () { await save(); ok(await sb.rpc('submit_revision', { p_submission: id })); go('#/', 'Revision submitted. Thank you.'); });
+    } }, 'Submit revision');
+    var fpType = select({ full_paper: ARTICLE.full_paper, extended_abstract: ARTICLE.extended_abstract, review_paper: ARTICLE.review_paper, case_study: ARTICLE.case_study }, 'full_paper');
+    var fpBtn = h('button', { class: 'btn', type: 'button', onclick: function () {
+      busy(fpBtn, async function () { await save(); ok(await sb.rpc('submit_full_paper', { p_submission: id, p_type: fpType.value })); go('#/', 'Full paper submitted. Thank you.'); });
+    } }, 'Submit full paper');
+    var feedback = mineOwn && s.status !== 'draft' ? await feedbackCard(id) : null;
     var armed = false;
     var delBtn = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
       if (!armed) { armed = true; delBtn.textContent = 'Click again to delete this draft'; return; }
@@ -425,7 +459,10 @@
       h('div', { class: 'head' }, h('div', null,
         h('span', { class: 'label' }, s.venues.name), h('h1', null, s.paper_id ? s.paper_id + ' · ' + (s.title || 'Untitled') : (s.title || 'New submission')),
         h('p', { class: 'muted' }, 'Version ' + s.version + (s.submitted_at ? ' · Submitted ' + day(s.submitted_at) : ''))), tag(s.status)),
-      off ? h('div', { class: 'card' }, h('p', null, 'This submission is with the editorial office and can no longer be edited here.')) : null,
+      off ? h('div', { class: 'card' }, h('p', null, 'This submission is with the editorial office and can no longer be edited here. You will see a notice in your Inbox when there is news.')) : null,
+      feedback,
+      mineOwn && s.status === 'revision_requested' ? h('div', { class: 'card' }, h('p', null, 'A revision has been requested. Update the details below, upload your revised files, then choose "Submit revision".')) : null,
+      fullStage ? h('div', { class: 'card' }, h('p', null, 'Your abstract has been accepted. Upload the blinded manuscript and a title page in the Files section, choose the paper type at the bottom, then submit your full paper.')) : null,
       h('div', { class: 'card stack' }, h('h2', null, 'Manuscript details'),
         h('div', { class: 'grid2' }, field('Track', track), field(isConf ? 'Submission type' : 'Article type', type)), guide,
         isConf ? field('How do you plan to take part?', mode) : null,
@@ -447,7 +484,9 @@
         h('div', { class: 'check' }, d2, h('label', { for: (d2.id = 'f' + (++uid)) }, 'Any AI tools were used only for assistance, are disclosed below, and are not listed as authors.')),
         h('div', { class: 'check' }, d3, h('label', { for: (d3.id = 'f' + (++uid)) }, 'All authors have approved this submission and agree to double-blind peer review.')),
         field('How AI tools were used, if at all', ai, 'For example: "Grammar checking only". Leave blank if none were used.')),
-      editable ? h('div', { class: 'row' }, sendBtn, saveBtn, s.status === 'draft' ? delBtn : null) : null
+      !editable ? null : s.status === 'draft' ? h('div', { class: 'row' }, sendBtn, saveBtn, delBtn)
+        : s.status === 'revision_requested' ? h('div', { class: 'row' }, revBtn, saveBtn)
+        : h('div', { class: 'card stack' }, h('h2', null, 'Submit your full paper'), field('Paper type', fpType), h('div', { class: 'row' }, fpBtn, saveBtn))
     );
   }
 
@@ -517,7 +556,7 @@
 
   // ---------- admin ----------
   function staffOnly(role) {
-    if (role === 'admin' ? hasRole('admin') : isStaff()) return true;
+    if (role === 'admin' ? isManager() : isStaff()) return true;
     show(h('div', { class: 'empty' }, 'This page is for the editorial office.'));
     return false;
   }
@@ -591,32 +630,17 @@
     });
     show.apply(null, out);
   }
-  async function adminSubmissions() {
-    if (!staffOnly('staff')) return;
-    var rows = ok(await sb.from('submissions')
-      .select('id,paper_id,title,status,submitted_at,venues(code),tracks(code),profiles(full_name,email)')
-      .neq('status', 'draft').order('submitted_at', { ascending: false }));
-    show(h('div', { class: 'head' }, h('div', null, h('h1', null, 'All submissions'),
-        h('p', { class: 'muted' }, 'Read-only for now. Assigning reviewers and recording decisions arrive in the next stage.'))),
-      rows.length ? h('div', { class: 'card scroll' }, h('table', null,
-        h('thead', null, h('tr', null, ['Paper ID', 'Title', 'Submitted by', 'Submitted', 'Status', ''].map(function (t) { return h('th', null, t); }))),
-        h('tbody', null, rows.map(function (r) {
-          return h('tr', null, h('td', null, r.paper_id), h('td', null, r.title),
-            h('td', null, r.profiles ? (r.profiles.full_name || r.profiles.email) : ''), h('td', null, day(r.submitted_at)),
-            h('td', null, tag(r.status)), h('td', null, h('a', { href: '#/submission/' + r.id }, 'Open')));
-        })))) : h('div', { class: 'empty' }, 'No submissions yet.'));
-  }
   async function adminPeople() {
     if (!staffOnly('admin')) return;
     var people = ok(await sb.from('profiles').select('id,full_name,email,institution,department,roles,willing_to_review,review_interests').order('created_at'));
     show(h('div', { class: 'head' }, h('div', null, h('h1', null, 'People'),
-        h('p', { class: 'muted' }, 'Everyone is an author. Tick extra roles to make someone a reviewer, editor or admin.'))),
+        h('p', { class: 'muted' }, 'Everyone is an author. Tick the journal-wide roles here. Track editors and conference editors are set per call on the Editorial team page.'))),
       h('div', { class: 'card scroll' }, h('table', null,
-        h('thead', null, h('tr', null, ['Name', 'Institution', 'Reviewer', 'Editor', 'Admin'].map(function (t) { return h('th', null, t); }))),
+        h('thead', null, h('tr', null, ['Name', 'Institution', 'Reviewer', 'Associate Editor', 'Editor-in-Chief', 'Manager', 'Maintenance'].map(function (t) { return h('th', null, t); }))),
         h('tbody', null, people.map(function (p) {
           function box(role) {
             var c = h('input', { type: 'checkbox', checked: p.roles.indexOf(role) >= 0, 'aria-label': role + ' role for ' + (p.full_name || p.email),
-              disabled: role === 'admin' && p.id === session.user.id, onchange: async function () {
+              disabled: role === 'manager' && p.id === session.user.id, onchange: async function () {
                 var roles = p.roles.filter(function (r) { return r !== role; });
                 if (c.checked) roles.push(role);
                 var r = await sb.rpc('set_user_roles', { p_user: p.id, p_roles: roles });
@@ -626,7 +650,417 @@
           }
           return h('tr', null, h('td', null, h('div', { class: 't' }, p.full_name || '(no name yet)'), h('div', { class: 'small muted' }, p.email),
               p.willing_to_review ? h('div', { class: 'small' }, h('span', { class: 'tag good' }, 'Wants to review'), ' ', (p.review_interests || []).join(', ')) : null),
-            h('td', null, [p.department, p.institution].filter(Boolean).join(', ')), box('reviewer'), box('editor'), box('admin'));
+            h('td', null, [p.department, p.institution].filter(Boolean).join(', ')), box('reviewer'), box('associate_editor'), box('eic'), box('manager'), box('maintenance'));
         })))));
+  }
+
+  // =====================================================================
+  // Stage 2: roles, the editorial desk, reviewing, inbox, team, system
+  // =====================================================================
+  var LENS = { author: 'Author', reviewer: 'Reviewer', track_editor: 'Track Editor', venue_editor: 'Conference / CFP Editor',
+    associate_editor: 'Associate Editor', eic: 'Editor-in-Chief', manager: 'Manager', maintenance: 'Maintenance' };
+  var STAFF_LENSES = ['track_editor', 'venue_editor', 'associate_editor', 'eic', 'manager', 'maintenance'];
+  var OUTCOME = { accept: 'Accept', minor_revision: 'Minor revision', major_revision: 'Major revision', reject: 'Not accepted' };
+  var ASSIGN = { invited: ['Invited', 'warn'], accepted: ['Reviewing', ''], declined: ['Declined', 'draft'], completed: ['Review received', 'good'], cancelled: ['Cancelled', 'draft'] };
+  var SCORES = { originality: 'Originality', relevance: 'Relevance to the track', methodology: 'Methodology', clarity: 'Clarity of writing', contribution: 'Contribution' };
+  var PROTOCOL = {
+    reviewer: ['Answer each invitation within 5 days, even if the answer is no.', 'You see the blinded manuscript only. Please do not try to identify the authors.',
+      'Submit your review within 21 days of accepting.', 'Be specific and kind: say what works, what does not, and how to fix it.', 'Keep the paper confidential and tell the editor about any conflict of interest.'],
+    track_editor: ['You see papers in your own track only.', 'Abstracts and posters: read them yourself and recommend an outcome.', 'Full papers: invite two reviewers, and invite a replacement when one declines.',
+      'When the reviews are in, recommend an outcome with a letter for the authors.', 'The conference or call editor records the final decision.'],
+    venue_editor: ['You see every paper in your call.', 'Appoint track editors on the Editorial team page.', 'Read each recommendation and record the final decision; the author is notified at once.',
+      'You may decide without a recommendation when a track has no editor.', 'Watch for overdue reviews and nudge the track editor.'],
+    associate_editor: ['You handle journal papers; the ones assigned to you are marked.', 'Invite three reviewers for each paper, and replace any who decline.', 'Record the decision once the reviews are in, with a letter for the authors.',
+      'Never handle a paper where you have a conflict of interest; tell the Editor-in-Chief.'],
+    eic: ['Assign each new journal paper to an Associate Editor.', 'You may record or override a decision on any journal paper.', 'Keep an eye on papers with no handling editor and on overdue reviews.'],
+    manager: ['You can open every role\'s dashboard with the "View as" menu, for all calls or one.', 'The portal shows you what that role sees. Your own papers stay hidden from your editorial view.',
+      'Grant roles on the People page and call-specific roles on the Editorial team page.', 'Everything you do is recorded in the activity log on the System page.'],
+    maintenance: ['This account can open every dashboard and paper, and can change nothing.', 'Manuscripts and reviews here are confidential. Do not copy them out of the portal.', 'Use the System page for counts and the activity log.']
+  };
+  var myRoles = [], venues = [], unread = 0;
+
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { /* private window */ } return null; }
+  function isManager() { return hasRole('manager') || hasRole('admin'); }
+  function holds(role) { return myRoles.some(function (r) { return r.role === role; }); }
+  function lenses() {
+    var l = ['author'], m = isManager();
+    if (m || hasRole('reviewer')) l.push('reviewer');
+    if (m || holds('track_editor')) l.push('track_editor');
+    if (m || holds('venue_editor')) l.push('venue_editor');
+    if (m || hasRole('associate_editor') || hasRole('editor')) l.push('associate_editor');
+    if (m || hasRole('eic')) l.push('eic');
+    if (m) l.push('manager');
+    if (m || hasRole('maintenance')) l.push('maintenance');
+    return l;
+  }
+  function bestStaffLens() {
+    var all = lenses(), i;
+    if (all.indexOf('manager') >= 0) return 'manager';
+    for (i = STAFF_LENSES.length - 1; i >= 0; i--) if (all.indexOf(STAFF_LENSES[i]) >= 0) return STAFF_LENSES[i];
+    return null;
+  }
+  function lens() { var l = store('ww_lens'); return lenses().indexOf(l) >= 0 ? l : (bestStaffLens() || 'author'); }
+  function staffLens() { var l = lens(); return STAFF_LENSES.indexOf(l) >= 0 ? l : bestStaffLens(); }
+  function scopedVenues(L) {
+    var m = isManager();
+    return venues.filter(function (v) {
+      if (L === 'manager' || L === 'maintenance') return true;
+      if (L === 'associate_editor' || L === 'eic') return v.type !== 'conference';
+      return m || myRoles.some(function (r) { return r.role === L && r.venue_id === v.id; });
+    });
+  }
+  function venueFilter(L) { var v = store('ww_venue') || ''; return scopedVenues(L).some(function (x) { return x.id === v; }) ? v : ''; }
+  function inScope(s, L) {
+    var vf = venueFilter(L), m = isManager();
+    if (vf && s.venue_id !== vf) return false;
+    if (L === 'manager' || L === 'maintenance') return true;
+    if (L === 'associate_editor' || L === 'eic') return s.venues.type !== 'conference';
+    if (m) return true;
+    return myRoles.some(function (r) { return r.role === L && r.venue_id === s.venue_id && (L === 'venue_editor' || r.track_id === s.track_id); });
+  }
+  async function loadStaff() {
+    myRoles = []; venues = []; unread = 0;
+    if (!session) return;
+    var a = await sb.from('venue_roles').select('id,venue_id,role,track_id').eq('user_id', session.user.id);
+    if (!a.error) myRoles = a.data;
+    var v = await sb.from('venues').select('id,code,name,type,status,tracks(id,code,name)').order('created_at');
+    if (!v.error) venues = v.data;
+    var n = await sb.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null);
+    unread = n.count || 0;
+  }
+  function protocolBox(L) {
+    return h('details', { class: 'card protocol' }, h('summary', null, 'Your protocol as ' + LENS[L]),
+      h('ol', null, (PROTOCOL[L] || []).map(function (t) { return h('li', null, t); })));
+  }
+  function needed(s) {
+    if (s.venues.type !== 'conference') return 3;
+    return s.article_type === 'abstract' || s.article_type === 'poster' ? 0 : 2;
+  }
+  function progress(s) {
+    var cur = (s.review_assignments || []).filter(function (a) { return a.version === s.version; });
+    var today = new Date().toISOString().slice(0, 10);
+    return {
+      need: needed(s),
+      done: cur.filter(function (a) { return a.status === 'completed'; }).length,
+      active: cur.filter(function (a) { return a.status === 'invited' || a.status === 'accepted'; }).length,
+      overdue: cur.some(function (a) { return (a.status === 'accepted' && a.due_on < today) || (a.status === 'invited' && a.respond_by < today); }),
+      rec: (s.decisions || []).some(function (d) { return d.kind === 'recommendation' && d.version === s.version; })
+    };
+  }
+  function nextStep(s) {
+    var p = progress(s), conf = s.venues.type === 'conference';
+    if (s.status === 'revision_requested') return ['With the authors for revision', 'authors'];
+    if (s.status === 'accepted') return s.article_type === 'abstract' && conf ? ['Abstract accepted; awaiting the full paper', 'authors'] : ['Accepted', 'decided'];
+    if (s.status === 'rejected' || s.status === 'withdrawn') return [STATUS[s.status][0], 'decided'];
+    if (p.rec) return ['Recommendation made; awaiting the final decision', 'action'];
+    if (p.need === 0) return ['Editor to read and recommend', 'action'];
+    if (p.done >= p.need) return ['Reviews are in; ready for an outcome', 'action'];
+    if (p.done + p.active < p.need) return ['Invite reviewers (' + (p.done + p.active) + ' of ' + p.need + ' in place)', 'action'];
+    return [(p.overdue ? 'Review overdue: ' : 'Awaiting reviews: ') + p.done + ' of ' + p.need + ' received', p.overdue ? 'action' : 'reviewers'];
+  }
+  function letterFor(outcome, s, name) {
+    var hello = 'Dear ' + (name || 'Author') + ',\n\nThank you for submitting "' + s.title + '" (' + s.paper_id + ') to ' + s.venues.name + '. ';
+    var bye = '\n\nWith warm regards,\nThe editorial team';
+    if (outcome === 'accept') return hello + 'We are pleased to let you know that it has been accepted.' +
+      (s.article_type === 'abstract' && s.venues.type === 'conference' ? '\n\nThe next step is to upload your full paper or extended abstract. Open this submission in the portal and you will find the upload section waiting for you.' : '') +
+      '\n\nCongratulations, and thank you for sharing your work with us.' + bye;
+    if (outcome === 'minor_revision') return hello + 'The reviewers found much to appreciate and have asked for a few small changes.\n\nTheir comments are shown in the portal alongside this letter. Please upload your revised version there and add a short note on how you addressed each point.\n\nWe look forward to the revised paper.' + bye;
+    if (outcome === 'major_revision') return hello + 'The reviewers see promise in the work and have asked for substantial revisions before it can be considered further.\n\nTheir comments are shown in the portal alongside this letter. We know a major revision takes real effort, and we would be glad to see the paper again once you have addressed the points raised.' + bye;
+    return hello + 'After careful consideration, we are sorry to say that we are unable to accept it on this occasion.\n\nThis is never an easy message to send. We hope the comments shown in the portal are useful as you take the work forward, and we thank you sincerely for considering us.' + bye;
+  }
+  function download(path, name) {
+    return async function () {
+      try { var u = ok(await sb.storage.from('manuscripts').createSignedUrl(path, 120, { download: name })); location.assign(u.signedUrl); } catch (e) { fail(e); }
+    };
+  }
+  function kv(pairs) {
+    var kids = [];
+    pairs.forEach(function (p) { if (p[1]) kids.push(h('dt', null, p[0]), h('dd', null, p[1])); });
+    return h('dl', { class: 'kv' }, kids);
+  }
+  function personSearch(label, onPick, pickText) {
+    var q = h('input', { type: 'search', placeholder: 'Name or institution' }), out = h('div', { class: 'stack' });
+    async function run() {
+      var term = q.value.replace(/[%,()*]/g, ' ').trim(), req = sb.from('profiles').select('id,full_name,email,institution,department,review_interests,willing_to_review');
+      req = term ? req.or('full_name.ilike.%' + term + '%,institution.ilike.%' + term + '%') : req.eq('willing_to_review', true);
+      var people = ok(await req.order('willing_to_review', { ascending: false }).limit(12));
+      out.replaceChildren(people.length ? h('ul', { class: 'list' }, people.map(function (p) {
+        var b = h('button', { class: 'btn ghost tiny', type: 'button', onclick: function () { busy(b, function () { return onPick(p); }); } }, pickText);
+        return h('li', { class: 'item' }, h('div', null, h('div', { class: 't' }, p.full_name || p.email, p.willing_to_review ? h('span', { class: 'tag good', style: 'margin-left:8px' }, 'Wants to review') : null),
+          h('div', { class: 'm' }, [p.department, p.institution].filter(Boolean).join(', ')), (p.review_interests || []).length ? h('div', { class: 'm' }, 'Reviews: ' + p.review_interests.join(', ')) : null), b);
+      })) : h('div', { class: 'empty' }, 'Nobody matches. People must have an account on the portal before they can be added.'));
+    }
+    var go1 = h('button', { class: 'btn ghost', type: 'button', onclick: function () { busy(go1, run); } }, 'Search');
+    q.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); go1.click(); } });
+    return h('div', { class: 'stack' }, h('div', { class: 'row' }, h('div', { style: 'flex:1;min-width:200px' }, field(label, q)), h('div', { style: 'align-self:flex-end' }, go1)),
+      h('p', { class: 'small muted' }, 'Leave the box empty and search to list everyone who has volunteered to review.'), out);
+  }
+
+  // ---------- editorial desk ----------
+  async function deskView() {
+    var L = staffLens();
+    if (!L) { show(h('div', { class: 'empty' }, 'This page is for the editorial team.')); return; }
+    var me = session.user.id;
+    var rows = ok(await sb.from('submissions')
+      .select('id,paper_id,title,status,version,article_type,submitted_at,owner_id,venue_id,track_id,handling_editor_id,venues(code,name,type),tracks(code,name),review_assignments(status,version,due_on,respond_by),decisions(kind,outcome,version)')
+      .neq('status', 'draft').order('submitted_at', { ascending: false }));
+    rows = rows.filter(function (r) { return r.owner_id !== me && inScope(r, L); });
+    rows.forEach(function (r) { r.step = nextStep(r); });
+    var buckets = { action: 'Needs action', reviewers: 'With reviewers', authors: 'With authors', decided: 'Decided', all: 'All papers' };
+    var current = 'action', search = h('input', { type: 'search', placeholder: 'Paper ID or title', 'aria-label': 'Search papers' }), listBox = h('div'), tiles = h('div', { class: 'tiles' });
+    if (!rows.some(function (r) { return r.step[1] === 'action'; })) current = 'all';
+    function draw() {
+      tiles.replaceChildren.apply(tiles, Object.keys(buckets).map(function (k) {
+        var n = k === 'all' ? rows.length : rows.filter(function (r) { return r.step[1] === k; }).length;
+        return h('button', { type: 'button', class: 'tile' + (k === current ? ' on' : ''), 'aria-pressed': k === current ? 'true' : 'false', onclick: function () { current = k; draw(); } }, h('b', null, n), h('span', null, buckets[k]));
+      }));
+      var term = search.value.trim().toLowerCase();
+      var shown = rows.filter(function (r) { return (current === 'all' || r.step[1] === current) && (!term || ((r.paper_id || '') + ' ' + r.title).toLowerCase().indexOf(term) >= 0); });
+      listBox.replaceChildren(shown.length ? h('ul', { class: 'list' }, shown.map(function (r) {
+        var p = progress(r);
+        return h('li', { class: 'item' }, h('div', { style: 'flex:1;min-width:240px' },
+          h('div', { class: 'm' }, [r.paper_id, r.tracks.name, ARTICLE[r.article_type], 'Version ' + r.version].join(' · ')),
+          h('div', { class: 't' }, r.title), h('div', { class: 'm' }, h('strong', null, 'Next: '), r.step[0]),
+          h('div', { class: 'm' }, 'Submitted ' + day(r.submitted_at) + (p.need ? ' · Reviews ' + p.done + ' of ' + p.need : '') +
+            (L === 'associate_editor' && r.handling_editor_id === me ? ' · Assigned to you' : '') + (r.venues.type !== 'conference' && !r.handling_editor_id ? ' · No handling editor yet' : ''))),
+          h('div', { class: 'row' }, tag(r.status), h('a', { class: 'btn ghost tiny', href: '#/paper/' + r.id }, 'Open')));
+      })) : h('div', { class: 'empty' }, rows.length ? 'Nothing in this view.' : 'No papers here yet. They appear as soon as authors submit.'));
+    }
+    search.addEventListener('input', draw); draw();
+    show(h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, LENS[L] + ' desk'), h('h1', null, 'Papers in your care'),
+        h('p', { class: 'muted' }, L === 'maintenance' ? 'Read-only view of every paper.' : 'Each paper shows whose turn it is. Start with "Needs action".'))),
+      protocolBox(L), tiles, h('div', { style: 'margin:14px 0' }, search), listBox,
+      isManager() ? h('p', { class: 'small muted', style: 'margin-top:14px' }, 'Papers you wrote yourself are not shown on any editorial desk.') : null);
+  }
+
+  // ---------- one paper, as the editorial team sees it ----------
+  async function paperView(id) {
+    var L = staffLens(), me = session.user.id;
+    if (!L) { show(h('div', { class: 'empty' }, 'This page is for the editorial team.')); return; }
+    var s = ok(await sb.from('submissions').select('*, venues(id,code,name,type), tracks(code,name), owner:profiles!submissions_owner_id_fkey(full_name,email,institution), handler:profiles!submissions_handling_editor_id_fkey(full_name)').eq('id', id).maybeSingle());
+    if (!s || s.owner_id === me) { show(h('div', { class: 'empty' }, 'This paper is not available on your desk. Papers you wrote are handled by other editors.'), h('p', null, h('a', { href: '#/' }, 'Back to the desk'))); return; }
+    var authors = ok(await sb.from('submission_authors').select('*').eq('submission_id', id).order('position'));
+    var files = ok(await sb.from('submission_files').select('*').eq('submission_id', id).order('created_at'));
+    var asg = ok(await sb.from('review_assignments').select('id,status,version,respond_by,due_on,invited_at,reviewer:profiles!review_assignments_reviewer_id_fkey(id,full_name,institution),reviews(*)').eq('submission_id', id).order('invited_at'));
+    var decisions = ok(await sb.from('decisions').select('*, by:profiles!decisions_decided_by_fkey(full_name)').eq('submission_id', id).order('created_at'));
+    s.review_assignments = asg; s.decisions = decisions;
+    var p = progress(s), step = nextStep(s), conf = s.venues.type === 'conference';
+    var open = ['submitted', 'under_review', 'revision_submitted'].indexOf(s.status) >= 0;
+    var canWrite = L !== 'maintenance';
+    var canDecide = canWrite && L !== 'track_editor';
+    function reload(msg) { flash = msg || null; route(); }
+
+    var reviewerCard = h('div', { class: 'card stack' }, h('h2', null, 'Reviewers'),
+      h('p', { class: 'muted small' }, p.need ? 'This paper needs ' + p.need + ' completed reviews; ' + p.done + ' received so far. Reviewers never see the authors.' : 'An abstract or poster is judged by the editor; reviewers are optional.'),
+      asg.length ? h('ul', { class: 'list' }, asg.map(function (a) {
+        var st = ASSIGN[a.status], cancel = h('button', { class: 'btn ghost tiny', type: 'button', onclick: function () {
+          busy(cancel, async function () { ok(await sb.rpc('cancel_invitation', { p_assignment: a.id })); reload('Invitation cancelled and the reviewer notified.'); });
+        } }, 'Cancel');
+        return h('li', { class: 'item' }, h('div', null, h('div', { class: 't' }, a.reviewer ? a.reviewer.full_name : 'Reviewer'),
+          h('div', { class: 'm' }, [a.reviewer && a.reviewer.institution, 'Version ' + a.version, a.status === 'invited' ? 'Answer due ' + day(a.respond_by) : a.status === 'accepted' ? 'Review due ' + day(a.due_on) : null].filter(Boolean).join(' · '))),
+          h('div', { class: 'row' }, h('span', { class: 'tag ' + st[1] }, st[0]), canWrite && (a.status === 'invited' || a.status === 'accepted') ? cancel : null));
+      })) : h('div', { class: 'empty' }, 'No reviewers invited yet.'),
+      canWrite && open ? personSearch('Find a reviewer', async function (person) {
+        ok(await sb.rpc('invite_reviewer', { p_submission: id, p_reviewer: person.id }));
+        reload('Invitation sent to ' + (person.full_name || person.email) + '.');
+      }, 'Invite') : null);
+
+    var done = asg.filter(function (a) { return a.status === 'completed'; });
+    var reviewsCard = h('div', { class: 'card stack' }, h('h2', null, 'Reviews received'),
+      done.length ? done.map(function (a, i) {
+        var r = Array.isArray(a.reviews) ? a.reviews[0] : a.reviews;
+        if (!r) return null;
+        return h('div', { class: 'author' }, h('div', { class: 'row', style: 'justify-content:space-between' },
+            h('strong', null, 'Reviewer ' + (i + 1) + (a.reviewer ? ' · ' + a.reviewer.full_name : '') + ' · version ' + a.version), h('span', { class: 'tag' }, OUTCOME[r.recommendation])),
+          h('div', { class: 'row' }, Object.keys(SCORES).map(function (k) { return h('span', { class: 'tag draft' }, SCORES[k] + ' ' + r[k] + '/5'); })),
+          h('div', null, h('div', { class: 'label' }, 'For the authors'), h('p', { style: 'white-space:pre-line' }, r.comments_author)),
+          r.comments_editor ? h('div', null, h('div', { class: 'label' }, 'Confidential, for the editor'), h('p', { style: 'white-space:pre-line' }, r.comments_editor)) : null);
+      }) : h('div', { class: 'empty' }, 'No completed reviews yet.'));
+
+    var outcomeCard = null;
+    if (canWrite && open) {
+      var pick = select(OUTCOME, 'accept'), letter = h('textarea', { style: 'min-height:260px' }), touched = false;
+      letter.value = letterFor('accept', s, s.owner && s.owner.full_name);
+      letter.addEventListener('input', function () { touched = true; });
+      pick.addEventListener('change', function () { if (!touched) letter.value = letterFor(pick.value, s, s.owner && s.owner.full_name); });
+      var recBtn = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+        busy(recBtn, async function () { ok(await sb.rpc('record_outcome', { p_submission: id, p_outcome: pick.value, p_letter: letter.value, p_final: false })); reload('Recommendation recorded. The deciding editor has been notified.'); });
+      } }, conf ? 'Send recommendation to the conference editor' : 'Record a recommendation');
+      var decBtn = h('button', { class: 'btn', type: 'button', onclick: function () {
+        busy(decBtn, async function () { ok(await sb.rpc('record_outcome', { p_submission: id, p_outcome: pick.value, p_letter: letter.value, p_final: true })); reload('Decision recorded and the author notified.'); });
+      } }, 'Record decision and notify the author');
+      outcomeCard = h('div', { class: 'card stack' }, h('h2', null, canDecide ? 'Decision' : 'Recommendation'),
+        p.need && p.done < p.need ? h('p', { class: 'small', style: 'color:#6B5200' }, 'Usual practice is to wait for ' + p.need + ' reviews; ' + p.done + ' are in. You may still proceed if you have good reason.') : null,
+        !canDecide ? h('p', { class: 'muted small' }, 'As track editor you recommend; the conference or call editor records the final decision and the author hears only then.') : null,
+        field('Outcome', pick), field('Letter to the author', letter, 'A pre-written letter you can edit. The author sees it only when the final decision is recorded.'),
+        h('div', { class: 'row' }, canDecide ? decBtn : null, recBtn));
+    }
+
+    var handlerCard = null;
+    if (!conf) {
+      handlerCard = h('div', { class: 'card stack' }, h('h2', null, 'Handling editor'), h('p', null, s.handler ? s.handler.full_name : 'Not assigned yet.'));
+      if (canWrite && (L === 'eic' || L === 'manager')) {
+        var eds = ok(await sb.from('profiles').select('id,full_name').overlaps('roles', ['associate_editor', 'eic']).order('full_name'));
+        var eo = { '': 'Choose an editor' }; eds.forEach(function (e) { eo[e.id] = e.full_name; });
+        var ep = select(eo, s.handling_editor_id || ''), eb = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+          busy(eb, async function () { ok(await sb.rpc('assign_handling_editor', { p_submission: id, p_user: ep.value || null })); reload('Handling editor updated.'); });
+        } }, 'Assign');
+        handlerCard.appendChild(h('div', { class: 'row' }, h('div', { style: 'flex:1;min-width:200px' }, field('Assign to', ep)), h('div', { style: 'align-self:flex-end' }, eb)));
+      }
+    }
+
+    show(h('p', null, h('a', { href: '#/' }, '← Back to the desk')),
+      h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, s.venues.name), h('h1', null, s.paper_id + ' · ' + s.title),
+        h('p', { class: 'muted' }, 'Version ' + s.version + ' · Submitted ' + day(s.submitted_at)), h('p', null, h('strong', null, 'Next: '), step[0])), tag(s.status)),
+      L === 'maintenance' ? h('div', { class: 'card' }, h('p', null, 'Maintenance view: you can read this paper but not change it.')) : null,
+      h('div', { class: 'card stack' }, h('h2', null, 'Submission'),
+        kv([['Track', s.tracks.code + ' · ' + s.tracks.name], ['Type', ARTICLE[s.article_type]], ['Keywords', s.keywords.join(', ')],
+          ['Taking part', s.attendance_mode === 'on_site' ? 'On-site' : s.attendance_mode === 'online' ? 'Online' : ''], ['AI use statement', s.ai_use_statement]]),
+        h('div', null, h('div', { class: 'label' }, 'Abstract'), h('p', { style: 'white-space:pre-line' }, s.abstract))),
+      h('div', { class: 'card stack' }, h('h2', null, 'Authors'), h('p', { class: 'muted small' }, 'Visible to editors only.'),
+        h('ul', { class: 'list' }, authors.map(function (a) {
+          return h('li', { class: 'item' }, h('div', null, h('div', { class: 't' }, a.position + '. ' + a.full_name + (a.is_corresponding ? ' (corresponding)' : '')),
+            h('div', { class: 'm' }, [a.affiliation, a.country, a.email].filter(Boolean).join(' · '))));
+        }))),
+      h('div', { class: 'card stack' }, h('h2', null, 'Files'), files.length ? h('ul', { class: 'list' }, files.map(function (f) {
+        return h('li', { class: 'item' }, h('div', null, h('div', { class: 't' }, f.file_name), h('div', { class: 'm' }, KIND[f.kind] + ' · version ' + f.version + ' · ' + day(f.created_at))),
+          h('button', { class: 'btn ghost tiny', type: 'button', onclick: download(f.storage_path, f.file_name) }, 'Download'));
+      })) : h('div', { class: 'empty' }, 'No files. Abstracts and posters are typed into the form.')),
+      handlerCard, reviewerCard, reviewsCard, outcomeCard,
+      h('div', { class: 'card stack' }, h('h2', null, 'History'), decisions.length ? h('ul', { class: 'list' }, decisions.map(function (d) {
+        return h('li', { class: 'item' }, h('div', { style: 'flex:1' }, h('div', { class: 't' }, (d.kind === 'decision' ? 'Decision: ' : 'Recommendation: ') + OUTCOME[d.outcome]),
+          h('div', { class: 'm' }, [d.by && d.by.full_name, 'Version ' + d.version, day(d.created_at)].filter(Boolean).join(' · ')),
+          d.letter ? h('details', null, h('summary', null, 'Letter'), h('p', { style: 'white-space:pre-line;margin-top:8px' }, d.letter)) : null));
+      })) : h('div', { class: 'empty' }, 'No recommendations or decisions yet.')));
+  }
+
+  // ---------- reviewer ----------
+  async function reviewsView() {
+    var rows = ok(await sb.rpc('my_reviews')), today = new Date().toISOString().slice(0, 10);
+    function group(status) { return rows.filter(function (r) { return r.status === status; }); }
+    function card(r, actions) {
+      return h('li', { class: 'card stack' }, h('div', null, h('span', { class: 'label' }, r.venue + ' · ' + r.track), h('h3', null, r.title),
+          h('p', { class: 'm small muted' }, [ARTICLE[r.article_type], 'Version ' + r.version, r.keywords.join(', ')].filter(Boolean).join(' · '))),
+        h('details', null, h('summary', null, 'Read the abstract'), h('p', { style: 'white-space:pre-line;margin-top:8px' }, r.abstract)), actions);
+    }
+    var out = [h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, 'Reviewer'), h('h1', null, 'My reviews'),
+      h('p', { class: 'muted' }, 'Thank you for reviewing. Your care is what makes the feedback worth reading.'))), protocolBox('reviewer')];
+    var inv = group('invited'), act = group('accepted'), fin = group('completed');
+    if (!rows.length) out.push(h('div', { class: 'empty' }, 'No invitations yet. Editors will reach you here when a paper matches your interests.'));
+    if (inv.length) out.push(h('h2', { style: 'margin:18px 0 10px' }, 'Invitations (' + inv.length + ')'), h('ul', { class: 'list' }, inv.map(function (r) {
+      function answer(yes) { return function (e) { busy(e.target, async function () { ok(await sb.rpc('respond_invitation', { p_assignment: r.assignment_id, p_accept: yes })); flash = yes ? 'Thank you. The review is due in three weeks.' : 'Thank you for letting us know.'; route(); }); }; }
+      return card(r, h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: answer(true) }, 'Accept'), h('button', { class: 'btn ghost', type: 'button', onclick: answer(false) }, 'Decline'),
+        h('span', { class: 'small muted' }, 'Please answer by ' + day(r.respond_by))));
+    })));
+    if (act.length) out.push(h('h2', { style: 'margin:18px 0 10px' }, 'To review (' + act.length + ')'), h('ul', { class: 'list' }, act.map(function (r) {
+      return card(r, h('div', { class: 'row' }, h('a', { class: 'btn', href: '#/review/' + r.assignment_id }, 'Open the review form'),
+        h('span', { class: 'tag ' + (r.due_on < today ? 'bad' : '') }, (r.due_on < today ? 'Overdue since ' : 'Due ') + day(r.due_on))));
+    })));
+    if (fin.length) out.push(h('h2', { style: 'margin:18px 0 10px' }, 'Completed (' + fin.length + ')'), h('ul', { class: 'list' }, fin.map(function (r) {
+      return h('li', { class: 'item' }, h('div', null, h('div', { class: 't' }, r.title), h('div', { class: 'm' }, r.venue)), h('a', { class: 'btn ghost tiny', href: '#/review/' + r.assignment_id }, 'View'));
+    })));
+    show.apply(null, out);
+  }
+  async function reviewForm(aid) {
+    var rows = ok(await sb.rpc('my_reviews')), r = rows.filter(function (x) { return x.assignment_id === aid; })[0];
+    if (!r || (r.status !== 'accepted' && r.status !== 'completed')) { show(h('div', { class: 'empty' }, 'This review is not open.'), h('p', null, h('a', { href: '#/' }, 'Back to my reviews'))); return; }
+    var files = ok(await sb.rpc('review_files', { p_assignment: aid }));
+    var mine = r.status === 'completed' ? ok(await sb.from('reviews').select('*').eq('assignment_id', aid).maybeSingle()) : null, ro = !!mine;
+    var scale = { '': 'Choose', 1: '1 · Poor', 2: '2 · Fair', 3: '3 · Good', 4: '4 · Very good', 5: '5 · Excellent' }, sc = {};
+    Object.keys(SCORES).forEach(function (k) { sc[k] = select(scale, mine ? String(mine[k]) : '', { disabled: ro, required: true }); });
+    var rec = select({ '': 'Choose', accept: 'Accept', minor_revision: 'Minor revision', major_revision: 'Major revision', reject: 'Do not accept' }, mine ? mine.recommendation : '', { disabled: ro, required: true });
+    var ca = h('textarea', { disabled: ro, required: true, style: 'min-height:200px' }), ce = h('textarea', { disabled: ro, style: 'min-height:90px' });
+    ca.value = mine ? mine.comments_author : ''; ce.value = mine ? (mine.comments_editor || '') : '';
+    var btn = h('button', { class: 'btn', type: 'submit' }, 'Submit review');
+    show(h('p', null, h('a', { href: '#/' }, '← Back to my reviews')),
+      h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, r.venue + ' · ' + r.track), h('h1', null, r.title), h('p', { class: 'muted' }, ARTICLE[r.article_type] + ' · Version ' + r.version + (ro ? '' : ' · Due ' + day(r.due_on))))),
+      h('div', { class: 'card stack' }, h('h2', null, 'The paper'), h('p', { style: 'white-space:pre-line' }, r.abstract),
+        files.length ? h('ul', { class: 'list' }, files.map(function (f) {
+          return h('li', { class: 'item' }, h('div', { class: 't' }, 'Blinded manuscript'), h('button', { class: 'btn ghost tiny', type: 'button', onclick: download(f.storage_path, f.file_name) }, 'Download'));
+        })) : h('p', { class: 'muted small' }, 'No manuscript file: please review the abstract above.')),
+      h('form', { class: 'card stack', onsubmit: function (e) {
+        e.preventDefault();
+        busy(btn, async function () {
+          ok(await sb.rpc('submit_review', { p_assignment: aid, p_originality: +sc.originality.value, p_relevance: +sc.relevance.value, p_methodology: +sc.methodology.value,
+            p_clarity: +sc.clarity.value, p_contribution: +sc.contribution.value, p_recommendation: rec.value, p_comments_author: ca.value, p_comments_editor: ce.value }));
+          go('#/', 'Thank you. Your review has been submitted.');
+        });
+      } }, h('h2', null, ro ? 'Your review' : 'Your review'),
+        h('div', { class: 'grid2' }, Object.keys(SCORES).map(function (k) { return field(SCORES[k], sc[k]); }), field('Your recommendation', rec)),
+        field('Comments for the authors', ca, 'What works, what does not, and how to improve it. The authors see this without your name.'),
+        field('Confidential comments for the editor (optional)', ce), ro ? null : h('div', null, btn)));
+  }
+
+  // ---------- inbox ----------
+  async function inboxView() {
+    var rows = ok(await sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(60));
+    show(h('div', { class: 'head' }, h('div', null, h('h1', null, 'Inbox'), h('p', { class: 'muted' }, 'Invitations, decisions and updates addressed to you.'))),
+      rows.length ? h('ul', { class: 'list' }, rows.map(function (n) {
+        return h('li', { class: 'card stack', style: n.read_at ? '' : 'border-left:4px solid #C8102E' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('h3', null, n.title), h('span', { class: 'small muted' }, day(n.created_at))),
+          n.body ? h('p', { style: 'white-space:pre-line' }, n.body) : null, n.link ? h('div', null, h('a', { class: 'btn ghost tiny', href: n.link }, 'Open')) : null);
+      })) : h('div', { class: 'empty' }, 'Nothing yet.'));
+    if (unread) { await sb.from('notifications').update({ read_at: new Date().toISOString() }).is('read_at', null); unread = 0; drawNav('#/inbox'); }
+  }
+
+  // ---------- editorial team for one call ----------
+  async function teamView() {
+    var L = staffLens();
+    if (['venue_editor', 'eic', 'manager'].indexOf(L) < 0) { show(h('div', { class: 'empty' }, 'This page is for conference editors, the Editor-in-Chief and managers.')); return; }
+    var mine = scopedVenues(L), vid = venueFilter(L) || (mine[0] && mine[0].id), v = mine.filter(function (x) { return x.id === vid; })[0];
+    if (!v) { show(h('div', { class: 'empty' }, 'No call is available to you here.')); return; }
+    var team = ok(await sb.from('venue_roles').select('id,role,track_id,user:profiles!venue_roles_user_id_fkey(full_name,email,institution),tracks(code,name)').eq('venue_id', v.id).order('role', { ascending: false }));
+    var ro = { track_editor: 'Track editor' }; if (L === 'manager') ro.venue_editor = 'Conference / CFP editor (decides)';
+    var role = select(ro, 'track_editor'), to = {}; v.tracks.forEach(function (t) { to[t.id] = t.code + ' · ' + t.name; });
+    var track = select(to, v.tracks[0] && v.tracks[0].id), trackWrap = field('Track', track);
+    role.addEventListener('change', function () { trackWrap.style.display = role.value === 'track_editor' ? '' : 'none'; });
+    var vo = {}; mine.forEach(function (x) { vo[x.id] = x.code + ' · ' + x.name; });
+    var vpick = select(vo, v.id, { onchange: function () { store('ww_venue', vpick.value); route(); } });
+    show(h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, 'Editorial team'), h('h1', null, v.name),
+        h('p', { class: 'muted' }, 'Track editors recommend; the conference or call editor decides. Journal-wide roles are set on the People page.')), h('div', { style: 'min-width:240px' }, field('Call', vpick))),
+      h('div', { class: 'card stack' }, h('h2', null, 'Current team'), team.length ? h('ul', { class: 'list' }, team.map(function (m) {
+        var rm = h('button', { class: 'btn ghost tiny', type: 'button', onclick: function () { busy(rm, async function () { ok(await sb.rpc('revoke_venue_role', { p_id: m.id })); flash = 'Role removed.'; await loadStaff(); route(); }); } }, 'Remove');
+        return h('li', { class: 'item' }, h('div', null, h('div', { class: 't' }, m.user ? (m.user.full_name || m.user.email) : ''),
+          h('div', { class: 'm' }, (m.role === 'venue_editor' ? 'Conference / CFP editor' : 'Track editor · ' + (m.tracks ? m.tracks.code + ' · ' + m.tracks.name : '')) + (m.user && m.user.institution ? ' · ' + m.user.institution : ''))),
+          m.role === 'track_editor' || L === 'manager' ? rm : null);
+      })) : h('div', { class: 'empty' }, 'Nobody has a role in this call yet.')),
+      h('div', { class: 'card stack' }, h('h2', null, 'Add someone'), h('div', { class: 'grid2' }, field('Role', role), trackWrap),
+        personSearch('Find a person', async function (person) {
+          ok(await sb.rpc('grant_venue_role', { p_user: person.id, p_venue: v.id, p_role: role.value, p_track: role.value === 'track_editor' ? track.value : null }));
+          flash = (person.full_name || person.email) + ' added and notified.'; await loadStaff(); route();
+        }, 'Add')));
+  }
+
+  // ---------- system (manager and maintenance) ----------
+  async function systemView() {
+    if (!(isManager() || hasRole('maintenance') || hasRole('eic'))) { show(h('div', { class: 'empty' }, 'This page is for managers and the maintenance account.')); return; }
+    var st = ok(await sb.rpc('system_stats'));
+    var log = ok(await sb.from('activity_log').select('at,action,detail,submission_id,actor:profiles!activity_log_actor_id_fkey(full_name)').order('at', { ascending: false }).limit(60));
+    function tile(n, label) { return h('div', { class: 'tile' }, h('b', null, n), h('span', null, label)); }
+    function spread(o) { return Object.keys(o).map(function (k) { return k.replace(/_/g, ' ') + ': ' + o[k]; }).join(' · ') || 'none'; }
+    show(h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, 'System'), h('h1', null, 'Health and activity'), h('p', { class: 'muted' }, 'Counts across the portal and the latest recorded actions.'))),
+      hasRole('maintenance') && !isManager() ? protocolBox('maintenance') : null,
+      h('div', { class: 'tiles' }, tile(st.people, 'Accounts'), tile(st.calls_open, 'Open calls'), tile(st.files, 'Files stored'),
+        tile((st.file_bytes / 1048576).toFixed(1) + ' MB', 'of 1,024 MB file space'), tile(st.overdue_reviews, 'Overdue reviews'), tile(st.unanswered_invitations, 'Unanswered invitations')),
+      h('div', { class: 'card stack' }, h('h2', null, 'Totals'), kv([['Submissions', spread(st.submissions)], ['Review assignments', spread(st.reviews)], ['Unread notifications', String(st.unread_notifications)]])),
+      h('div', { class: 'card scroll' }, h('h2', null, 'Activity log'), log.length ? h('table', null,
+        h('thead', null, h('tr', null, ['When', 'Who', 'Action', 'Detail'].map(function (t) { return h('th', null, t); }))),
+        h('tbody', null, log.map(function (l) {
+          return h('tr', null, h('td', null, new Date(l.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })), h('td', null, l.actor ? l.actor.full_name : ''),
+            h('td', null, l.action.replace(/_/g, ' ')), h('td', { class: 'small muted' }, l.detail ? JSON.stringify(l.detail) : ''));
+        }))) : h('div', { class: 'empty' }, 'Nothing recorded yet.')));
+  }
+
+  // ---------- author: decision letters, reviewer comments, revision and full paper ----------
+  async function feedbackCard(id) {
+    var r = await sb.rpc('author_feedback', { p_submission: id });
+    if (r.error || !r.data || !r.data.decisions.length) return null;
+    var fb = r.data;
+    return h('div', { class: 'card stack' }, h('h2', null, 'Decision and reviewer comments'),
+      fb.decisions.map(function (d) {
+        var rv = fb.reviews.filter(function (x) { return x.version === d.version; });
+        return h('div', { class: 'author' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('strong', null, 'Version ' + d.version + ' · ' + OUTCOME[d.outcome]), h('span', { class: 'small muted' }, day(d.at))),
+          d.letter ? h('p', { style: 'white-space:pre-line' }, d.letter) : null,
+          rv.map(function (x, i) { return h('div', null, h('div', { class: 'label' }, 'Reviewer ' + (i + 1)), h('p', { style: 'white-space:pre-line' }, x.comments)); }));
+      }));
   }
 })();

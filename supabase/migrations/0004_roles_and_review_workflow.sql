@@ -1,0 +1,12 @@
+-- Applied 16 Nov 2026 as two Supabase migrations: stage2a_new_roles and stage2b_review_workflow.
+-- The full text lives in the Supabase project's migration history. Summary:
+--   Roles (profiles.roles): author, reviewer, associate_editor, eic, manager, maintenance.
+--   Per-call roles (venue_roles): venue_editor (decides), track_editor (recommends, one track).
+--   Tables: venue_roles, review_assignments, reviews, decisions, notifications, activity_log.
+--   Rules: nobody gets editorial access to a paper they wrote or co-wrote; reviewers never read
+--          the submissions or authors tables and can download only blinded manuscripts;
+--          maintenance can read everything and change nothing.
+--   Actions (all checked in the database): set_user_roles, grant_venue_role, revoke_venue_role,
+--          assign_handling_editor, invite_reviewer, cancel_invitation, respond_invitation,
+--          submit_review, my_reviews, review_files, record_outcome, submit_revision,
+--          submit_full_paper, author_feedback, system_stats.
