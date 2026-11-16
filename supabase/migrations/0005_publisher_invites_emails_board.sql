@@ -1,0 +1,8 @@
+-- Applied 16 Nov 2026 as Supabase migration stage3_publisher_invites_emails_board (full text in Supabase's history).
+--   Publisher: a per-call role (venue_roles.role = 'publisher') that reads accepted papers only; publisher_export().
+--   Invitations: role_invitations table, private.can_grant() seniority rules, invite_to_role(), revoke_role_invitation();
+--                a pending invitation is applied automatically when that email signs up.
+--   Emails: email_templates (24 seeded from the "IBC Email Templates" doc plus conference letters) and email_outbox;
+--           save_email_template() and queue_email(). Nothing is emailed yet: messages wait in the outbox and are
+--           copied to the recipient's portal inbox.
+--   Advisory boards: board_members, public to read, edited by the call's editor, the Editor-in-Chief (journal) or a manager.

@@ -128,9 +128,11 @@
       var L = lens(), all = lenses(), staff = STAFF_LENSES.indexOf(L) >= 0;
       if (L === 'author') items.push(link('#/', 'My submissions'), link('#/calls', 'Calls for papers'));
       else if (L === 'reviewer') items.push(link('#/', 'My reviews'));
+      else if (L === 'publisher') items.push(link('#/', 'Accepted papers'));
       else {
         items.push(link('#/', 'Desk'));
-        if (L === 'venue_editor' || L === 'eic' || L === 'manager') items.push(link('#/team', 'Editorial team'));
+        if (L === 'venue_editor' || L === 'associate_editor' || L === 'eic' || L === 'manager') items.push(link('#/team', 'Editorial team'));
+        items.push(link('#/emails', 'Emails'));
         if (L === 'manager') items.push(link('#/admin/calls', 'Manage calls'), link('#/admin/people', 'People'));
         if (L === 'manager' || L === 'maintenance') items.push(link('#/system', 'System'));
       }
@@ -153,7 +155,7 @@
   function home() {
     if (!session) return loginView();
     var L = lens();
-    return L === 'author' ? dashboard() : L === 'reviewer' ? reviewsView() : deskView();
+    return L === 'author' ? dashboard() : L === 'reviewer' ? reviewsView() : L === 'publisher' ? publisherView() : deskView();
   }
   var routes = [
     [/^#\/?$/, home],
@@ -165,6 +167,7 @@
     [/^#\/desk$/, guard(deskView)], [/^#\/paper\/([0-9a-f-]{36})$/, guard(paperView)],
     [/^#\/reviews$/, guard(reviewsView)], [/^#\/review\/([0-9a-f-]{36})$/, guard(reviewForm)],
     [/^#\/inbox$/, guard(inboxView)], [/^#\/team$/, guard(teamView)], [/^#\/system$/, guard(systemView)],
+    [/^#\/emails$/, guard(emailsView)], [/^#\/publisher$/, guard(publisherView)],
     [/^#\/admin\/calls$/, guard(adminCalls)], [/^#\/admin\/people$/, guard(adminPeople)]
   ];
   function guard(fn) { return function (a) { return session ? fn(a) : loginView(); }; }
@@ -283,7 +286,14 @@
     var v = ok(await sb.from('venues')
       .select('id,code,name,type,partner_name,description,opens_on,closes_on,tracks(id,code,name)')
       .eq('code', code).eq('status', 'open').maybeSingle());
+    var br = v ? await sb.from('board_members').select('full_name,role_title,designation,affiliation,country,profile_url').eq('venue_id', v.id).order('sort').order('created_at') : null;
+    var board = (br && br.data) || [];
     show(v ? callCard(v, trk) : h('div', { class: 'empty' }, 'This call is not open for submissions right now.'),
+      board.length ? h('div', { class: 'card stack' }, h('h2', null, 'Advisory board'), h('ul', { class: 'list' }, board.map(function (m) {
+        return h('li', { class: 'item' }, h('div', null, h('div', { class: 'm' }, m.role_title),
+          h('div', { class: 't' }, m.profile_url ? h('a', { href: m.profile_url, target: '_blank', rel: 'noopener' }, m.full_name) : m.full_name),
+          h('div', { class: 'm' }, [m.designation, m.affiliation, m.country].filter(Boolean).join(' · '))));
+      }))) : null,
       h('p', null, h('a', { href: '#/calls' }, 'See all open calls')));
   }
   function callCard(v, trk) {
@@ -658,7 +668,7 @@
   // Stage 2: roles, the editorial desk, reviewing, inbox, team, system
   // =====================================================================
   var LENS = { author: 'Author', reviewer: 'Reviewer', track_editor: 'Track Editor', venue_editor: 'Conference / CFP Editor',
-    associate_editor: 'Associate Editor', eic: 'Editor-in-Chief', manager: 'Manager', maintenance: 'Maintenance' };
+    associate_editor: 'Associate Editor', eic: 'Editor-in-Chief', manager: 'Manager', maintenance: 'Maintenance', publisher: 'Publisher' };
   var STAFF_LENSES = ['track_editor', 'venue_editor', 'associate_editor', 'eic', 'manager', 'maintenance'];
   var OUTCOME = { accept: 'Accept', minor_revision: 'Minor revision', major_revision: 'Major revision', reject: 'Not accepted' };
   var ASSIGN = { invited: ['Invited', 'warn'], accepted: ['Reviewing', ''], declined: ['Declined', 'draft'], completed: ['Review received', 'good'], cancelled: ['Cancelled', 'draft'] };
@@ -684,13 +694,14 @@
   function holds(role) { return myRoles.some(function (r) { return r.role === role; }); }
   function lenses() {
     var l = ['author'], m = isManager();
-    if (m || hasRole('reviewer')) l.push('reviewer');
+    if (m || hasRole('reviewer') || (profile && profile.willing_to_review)) l.push('reviewer');
     if (m || holds('track_editor')) l.push('track_editor');
     if (m || holds('venue_editor')) l.push('venue_editor');
     if (m || hasRole('associate_editor') || hasRole('editor')) l.push('associate_editor');
     if (m || hasRole('eic')) l.push('eic');
     if (m) l.push('manager');
     if (m || hasRole('maintenance')) l.push('maintenance');
+    if (m || holds('publisher')) l.push('publisher');
     return l;
   }
   function bestStaffLens() {
@@ -699,7 +710,7 @@
     for (i = STAFF_LENSES.length - 1; i >= 0; i--) if (all.indexOf(STAFF_LENSES[i]) >= 0) return STAFF_LENSES[i];
     return null;
   }
-  function lens() { var l = store('ww_lens'); return lenses().indexOf(l) >= 0 ? l : (bestStaffLens() || 'author'); }
+  function lens() { var l = store('ww_lens'); return lenses().indexOf(l) >= 0 ? l : (bestStaffLens() || (holds('publisher') ? 'publisher' : 'author')); }
   function staffLens() { var l = lens(); return STAFF_LENSES.indexOf(l) >= 0 ? l : bestStaffLens(); }
   function scopedVenues(L) {
     var m = isManager();
@@ -837,17 +848,27 @@
   async function paperView(id) {
     var L = staffLens(), me = session.user.id;
     if (!L) { show(h('div', { class: 'empty' }, 'This page is for the editorial team.')); return; }
-    var s = ok(await sb.from('submissions').select('*, venues(id,code,name,type), tracks(code,name), owner:profiles!submissions_owner_id_fkey(full_name,email,institution), handler:profiles!submissions_handling_editor_id_fkey(full_name)').eq('id', id).maybeSingle());
+    var s = ok(await sb.from('submissions').select('*, venues(id,code,name,type), tracks(code,name), owner:profiles!submissions_owner_id_fkey(full_name,email,institution,salutation), handler:profiles!submissions_handling_editor_id_fkey(full_name)').eq('id', id).maybeSingle());
     if (!s || s.owner_id === me) { show(h('div', { class: 'empty' }, 'This paper is not available on your desk. Papers you wrote are handled by other editors.'), h('p', null, h('a', { href: '#/' }, 'Back to the desk'))); return; }
     var authors = ok(await sb.from('submission_authors').select('*').eq('submission_id', id).order('position'));
     var files = ok(await sb.from('submission_files').select('*').eq('submission_id', id).order('created_at'));
-    var asg = ok(await sb.from('review_assignments').select('id,status,version,respond_by,due_on,invited_at,reviewer:profiles!review_assignments_reviewer_id_fkey(id,full_name,institution),reviews(*)').eq('submission_id', id).order('invited_at'));
+    var asg = ok(await sb.from('review_assignments').select('id,status,version,respond_by,due_on,invited_at,reviewer:profiles!review_assignments_reviewer_id_fkey(id,full_name,institution,email,salutation),reviews(*)').eq('submission_id', id).order('invited_at'));
     var decisions = ok(await sb.from('decisions').select('*, by:profiles!decisions_decided_by_fkey(full_name)').eq('submission_id', id).order('created_at'));
     s.review_assignments = asg; s.decisions = decisions;
     var p = progress(s), step = nextStep(s), conf = s.venues.type === 'conference';
     var open = ['submitted', 'under_review', 'revision_submitted'].indexOf(s.status) >= 0;
     var canWrite = L !== 'maintenance';
     var canDecide = canWrite && L !== 'track_editor';
+    var tpls = canWrite ? await templates() : [];
+    var TKEY = conf ? { accept: 'conf_accept', minor_revision: 'conf_minor_revision', major_revision: 'conf_major_revision', reject: 'conf_reject' }
+      : { accept: 'acceptance', minor_revision: 'minor_revision', major_revision: 'major_revision', reject: 'decline_after_review' };
+    function draft(outcome) {
+      var t = tpls.filter(function (x) { return x.key === TKEY[outcome]; })[0];
+      if (!t) return letterFor(outcome, s, s.owner && s.owner.full_name);
+      return renderTpl(t, { salutation: (s.owner && s.owner.salutation) || '', name: (s.owner && s.owner.full_name) || 'Author', paper_id: s.paper_id, title: s.title,
+        stream: s.tracks.name, venue: s.venues.name, version: s.version, editor_name: (profile && profile.full_name) || '', link: location.origin + '/portal/#/submission/' + s.id }, tpls, conf).body;
+    }
+    function leftover(text) { if (/\{\{[^}]*\}\}/.test(text)) throw new Error('The letter still has parts in double braces. Please fill them in or remove them.'); }
     function reload(msg) { flash = msg || null; route(); }
 
     var reviewerCard = h('div', { class: 'card stack' }, h('h2', null, 'Reviewers'),
@@ -880,14 +901,14 @@
     var outcomeCard = null;
     if (canWrite && open) {
       var pick = select(OUTCOME, 'accept'), letter = h('textarea', { style: 'min-height:260px' }), touched = false;
-      letter.value = letterFor('accept', s, s.owner && s.owner.full_name);
+      letter.value = draft('accept');
       letter.addEventListener('input', function () { touched = true; });
-      pick.addEventListener('change', function () { if (!touched) letter.value = letterFor(pick.value, s, s.owner && s.owner.full_name); });
+      pick.addEventListener('change', function () { if (!touched) letter.value = draft(pick.value); });
       var recBtn = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
-        busy(recBtn, async function () { ok(await sb.rpc('record_outcome', { p_submission: id, p_outcome: pick.value, p_letter: letter.value, p_final: false })); reload('Recommendation recorded. The deciding editor has been notified.'); });
+        busy(recBtn, async function () { leftover(letter.value); ok(await sb.rpc('record_outcome', { p_submission: id, p_outcome: pick.value, p_letter: letter.value, p_final: false })); reload('Recommendation recorded. The deciding editor has been notified.'); });
       } }, conf ? 'Send recommendation to the conference editor' : 'Record a recommendation');
       var decBtn = h('button', { class: 'btn', type: 'button', onclick: function () {
-        busy(decBtn, async function () { ok(await sb.rpc('record_outcome', { p_submission: id, p_outcome: pick.value, p_letter: letter.value, p_final: true })); reload('Decision recorded and the author notified.'); });
+        busy(decBtn, async function () { leftover(letter.value); ok(await sb.rpc('record_outcome', { p_submission: id, p_outcome: pick.value, p_letter: letter.value, p_final: true })); reload('Decision recorded and the author notified.'); });
       } }, 'Record decision and notify the author');
       outcomeCard = h('div', { class: 'card stack' }, h('h2', null, canDecide ? 'Decision' : 'Recommendation'),
         p.need && p.done < p.need ? h('p', { class: 'small', style: 'color:#6B5200' }, 'Usual practice is to wait for ' + p.need + ' reviews; ' + p.done + ' are in. You may still proceed if you have good reason.') : null,
@@ -909,6 +930,15 @@
       }
     }
 
+    var people = [];
+    authors.filter(function (a) { return a.is_corresponding; }).forEach(function (a) {
+      people.push({ label: 'Author: ' + a.full_name, name: a.full_name, email: a.email, salutation: s.owner && s.owner.email === a.email ? s.owner.salutation : '', link: '#/submission/' + id });
+    });
+    asg.forEach(function (a) {
+      if (a.reviewer && a.reviewer.email && a.status !== 'cancelled' && a.status !== 'declined') people.push({ label: 'Reviewer: ' + a.reviewer.full_name, name: a.reviewer.full_name,
+        email: a.reviewer.email, salutation: a.reviewer.salutation, link: '#/reviews', due: day(a.status === 'invited' ? a.respond_by : a.due_on) });
+    });
+    var composerCard = canWrite && people.length ? composer(s, people, tpls, conf, reload) : null;
     show(h('p', null, h('a', { href: '#/' }, '← Back to the desk')),
       h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, s.venues.name), h('h1', null, s.paper_id + ' · ' + s.title),
         h('p', { class: 'muted' }, 'Version ' + s.version + ' · Submitted ' + day(s.submitted_at)), h('p', null, h('strong', null, 'Next: '), step[0])), tag(s.status)),
@@ -926,7 +956,7 @@
         return h('li', { class: 'item' }, h('div', null, h('div', { class: 't' }, f.file_name), h('div', { class: 'm' }, KIND[f.kind] + ' · version ' + f.version + ' · ' + day(f.created_at))),
           h('button', { class: 'btn ghost tiny', type: 'button', onclick: download(f.storage_path, f.file_name) }, 'Download'));
       })) : h('div', { class: 'empty' }, 'No files. Abstracts and posters are typed into the form.')),
-      handlerCard, reviewerCard, reviewsCard, outcomeCard,
+      handlerCard, reviewerCard, reviewsCard, outcomeCard, composerCard,
       h('div', { class: 'card stack' }, h('h2', null, 'History'), decisions.length ? h('ul', { class: 'list' }, decisions.map(function (d) {
         return h('li', { class: 'item' }, h('div', { style: 'flex:1' }, h('div', { class: 't' }, (d.kind === 'decision' ? 'Decision: ' : 'Recommendation: ') + OUTCOME[d.outcome]),
           h('div', { class: 'm' }, [d.by && d.by.full_name, 'Version ' + d.version, day(d.created_at)].filter(Boolean).join(' · ')),
@@ -1002,32 +1032,248 @@
     if (unread) { await sb.from('notifications').update({ read_at: new Date().toISOString() }).is('read_at', null); unread = 0; drawNav('#/inbox'); }
   }
 
-  // ---------- editorial team for one call ----------
+  // ---------- editorial team, invitations and advisory board for one call ----------
+  var ROLE_LABEL = { track_editor: 'Track editor', venue_editor: 'Conference / CFP editor', publisher: 'Publisher',
+    associate_editor: 'Associate Editor (journal-wide)', eic: 'Editor-in-Chief (journal-wide)', manager: 'Manager (whole portal)', maintenance: 'Maintenance (read-only)' };
+  function grantable(L, conf) {
+    if (L === 'manager') return ['track_editor', 'venue_editor', 'publisher', 'associate_editor', 'eic', 'manager', 'maintenance'];
+    if (L === 'eic') return conf ? ['associate_editor'] : ['track_editor', 'venue_editor', 'publisher', 'associate_editor'];
+    if (L === 'associate_editor') return conf ? [] : ['track_editor', 'venue_editor'];
+    if (L === 'venue_editor') return ['track_editor', 'publisher'];
+    return [];
+  }
   async function teamView() {
     var L = staffLens();
-    if (['venue_editor', 'eic', 'manager'].indexOf(L) < 0) { show(h('div', { class: 'empty' }, 'This page is for conference editors, the Editor-in-Chief and managers.')); return; }
+    if (['venue_editor', 'associate_editor', 'eic', 'manager'].indexOf(L) < 0) { show(h('div', { class: 'empty' }, 'This page is for editors who lead a call or the journal.')); return; }
     var mine = scopedVenues(L), vid = venueFilter(L) || (mine[0] && mine[0].id), v = mine.filter(function (x) { return x.id === vid; })[0];
     if (!v) { show(h('div', { class: 'empty' }, 'No call is available to you here.')); return; }
+    var conf = v.type === 'conference', can = grantable(L, conf), canBoard = L === 'manager' || L === 'venue_editor' || (L === 'eic' && !conf);
     var team = ok(await sb.from('venue_roles').select('id,role,track_id,user:profiles!venue_roles_user_id_fkey(full_name,email,institution),tracks(code,name)').eq('venue_id', v.id).order('role', { ascending: false }));
-    var ro = { track_editor: 'Track editor' }; if (L === 'manager') ro.venue_editor = 'Conference / CFP editor (decides)';
-    var role = select(ro, 'track_editor'), to = {}; v.tracks.forEach(function (t) { to[t.id] = t.code + ' · ' + t.name; });
+    var board = ok(await sb.from('board_members').select('*').eq('venue_id', v.id).order('sort').order('created_at'));
+    var pr = await sb.from('role_invitations').select('*').eq('status', 'pending').order('created_at', { ascending: false });
+    var pending = (pr.data || []).filter(function (i) { return !i.venue_id || i.venue_id === v.id; });
+    function again(msg) { flash = msg; return loadStaff().then(route); }
+
+    var ro = {}; can.forEach(function (k) { ro[k] = ROLE_LABEL[k]; });
+    var role = select(ro, can[0]), to = {}; v.tracks.forEach(function (t) { to[t.id] = t.code + ' · ' + t.name; });
     var track = select(to, v.tracks[0] && v.tracks[0].id), trackWrap = field('Track', track);
-    role.addEventListener('change', function () { trackWrap.style.display = role.value === 'track_editor' ? '' : 'none'; });
+    function syncTrack() { trackWrap.style.display = role.value === 'track_editor' ? '' : 'none'; }
+    role.addEventListener('change', syncTrack); syncTrack();
+    async function invite(email, label) {
+      var res = ok(await sb.rpc('invite_to_role', { p_email: email, p_role: role.value, p_venue: v.id, p_track: role.value === 'track_editor' ? track.value : null }));
+      return again(res === 'added' ? label + ' now has the role and has been told in the portal inbox.'
+        : 'Invitation saved for ' + email + '. Ask them to create an account at wisewizard.app/portal with exactly this email; the role is applied the moment they do. No email is sent yet.');
+    }
+    var mail = h('input', { type: 'email', placeholder: 'name@example.org' });
+    var mailBtn = h('button', { class: 'btn', type: 'button', onclick: function () { busy(mailBtn, function () { return invite(mail.value, mail.value); }); } }, 'Invite by email');
     var vo = {}; mine.forEach(function (x) { vo[x.id] = x.code + ' · ' + x.name; });
     var vpick = select(vo, v.id, { onchange: function () { store('ww_venue', vpick.value); route(); } });
+
+    var b = { full_name: h('input', { type: 'text', required: true }), role_title: h('input', { type: 'text', value: 'Advisory Board Member', required: true }),
+      designation: h('input', { type: 'text' }), affiliation: h('input', { type: 'text' }), country: h('input', { type: 'text' }),
+      profile_url: h('input', { type: 'url', placeholder: 'https://' }), sort: h('input', { type: 'number', value: String((board.length + 1) * 10), min: '0' }) };
+    var bBtn = h('button', { class: 'btn', type: 'submit' }, 'Add to the board');
+
     show(h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, 'Editorial team'), h('h1', null, v.name),
-        h('p', { class: 'muted' }, 'Track editors recommend; the conference or call editor decides. Journal-wide roles are set on the People page.')), h('div', { style: 'min-width:240px' }, field('Call', vpick))),
+        h('p', { class: 'muted' }, 'Every role except author and reviewer is by invitation, and only from someone senior to that role.')), h('div', { style: 'min-width:240px' }, field('Call', vpick))),
       h('div', { class: 'card stack' }, h('h2', null, 'Current team'), team.length ? h('ul', { class: 'list' }, team.map(function (m) {
-        var rm = h('button', { class: 'btn ghost tiny', type: 'button', onclick: function () { busy(rm, async function () { ok(await sb.rpc('revoke_venue_role', { p_id: m.id })); flash = 'Role removed.'; await loadStaff(); route(); }); } }, 'Remove');
+        var rm = h('button', { class: 'btn ghost tiny', type: 'button', onclick: function () { busy(rm, async function () { ok(await sb.rpc('revoke_venue_role', { p_id: m.id })); await again('Role removed.'); }); } }, 'Remove');
         return h('li', { class: 'item' }, h('div', null, h('div', { class: 't' }, m.user ? (m.user.full_name || m.user.email) : ''),
-          h('div', { class: 'm' }, (m.role === 'venue_editor' ? 'Conference / CFP editor' : 'Track editor · ' + (m.tracks ? m.tracks.code + ' · ' + m.tracks.name : '')) + (m.user && m.user.institution ? ' · ' + m.user.institution : ''))),
-          m.role === 'track_editor' || L === 'manager' ? rm : null);
+          h('div', { class: 'm' }, ROLE_LABEL[m.role] + (m.tracks ? ' · ' + m.tracks.code + ' · ' + m.tracks.name : '') + (m.user && m.user.institution ? ' · ' + m.user.institution : ''))),
+          can.indexOf(m.role) >= 0 ? rm : null);
       })) : h('div', { class: 'empty' }, 'Nobody has a role in this call yet.')),
-      h('div', { class: 'card stack' }, h('h2', null, 'Add someone'), h('div', { class: 'grid2' }, field('Role', role), trackWrap),
-        personSearch('Find a person', async function (person) {
-          ok(await sb.rpc('grant_venue_role', { p_user: person.id, p_venue: v.id, p_role: role.value, p_track: role.value === 'track_editor' ? track.value : null }));
-          flash = (person.full_name || person.email) + ' added and notified.'; await loadStaff(); route();
-        }, 'Add')));
+      can.length ? h('div', { class: 'card stack' }, h('h2', null, 'Invite someone to a role'),
+        h('div', { class: 'grid2' }, field('Role', role), trackWrap),
+        h('div', { class: 'row' }, h('div', { style: 'flex:1;min-width:220px' }, field('Their email address', mail, 'Works whether or not they already have an account.')), h('div', { style: 'align-self:center' }, mailBtn)),
+        h('p', { class: 'label', style: 'margin-top:6px' }, 'Or pick someone already on the portal'),
+        personSearch('Find a person', function (person) { return invite(person.email, person.full_name || person.email); }, 'Give this role')) : null,
+      pending.length ? h('div', { class: 'card stack' }, h('h2', null, 'Waiting for sign-up'), h('ul', { class: 'list' }, pending.map(function (i) {
+        var wd = h('button', { class: 'btn ghost tiny', type: 'button', onclick: function () { busy(wd, async function () { ok(await sb.rpc('revoke_role_invitation', { p_id: i.id })); await again('Invitation withdrawn.'); }); } }, 'Withdraw');
+        return h('li', { class: 'item' }, h('div', null, h('div', { class: 't' }, i.email), h('div', { class: 'm' }, ROLE_LABEL[i.role] + ' · invited ' + day(i.created_at))), wd);
+      }))) : null,
+      h('div', { class: 'card stack' }, h('h2', null, 'Advisory board'),
+        h('p', { class: 'muted small' }, 'Shown publicly on this call\'s page in the portal. Board members do not need an account.'),
+        board.length ? h('ul', { class: 'list' }, board.map(function (m) {
+          var rm = h('button', { class: 'btn ghost tiny', type: 'button', onclick: function () { busy(rm, async function () { ok(await sb.from('board_members').delete().eq('id', m.id)); await again('Removed from the board.'); }); } }, 'Remove');
+          return h('li', { class: 'item' }, h('div', null, h('div', { class: 'm' }, m.role_title), h('div', { class: 't' }, m.full_name),
+            h('div', { class: 'm' }, [m.designation, m.affiliation, m.country].filter(Boolean).join(' · '))), canBoard ? rm : null);
+        })) : h('div', { class: 'empty' }, 'No board members listed yet.'),
+        canBoard ? h('form', { class: 'stack', onsubmit: function (e) {
+          e.preventDefault();
+          busy(bBtn, async function () {
+            ok(await sb.from('board_members').insert({ venue_id: v.id, full_name: b.full_name.value.trim(), role_title: b.role_title.value.trim() || 'Advisory Board Member',
+              designation: b.designation.value.trim() || null, affiliation: b.affiliation.value.trim() || null, country: b.country.value.trim() || null,
+              profile_url: b.profile_url.value.trim() || null, sort: parseInt(b.sort.value, 10) || 100 }));
+            await again('Added to the board.');
+          });
+        } }, h('div', { class: 'grid2' }, field('Full name with title', b.full_name, 'For example: Prof. (Dr.) Asha Rao'), field('Role on the board', b.role_title, 'For example: Chief Patron, Advisory Board Member, Editorial Board Member.')),
+          h('div', { class: 'grid2' }, field('Designation', b.designation), field('Institution', b.affiliation)),
+          h('div', { class: 'grid2' }, field('Country', b.country), field('Profile link (optional)', b.profile_url)),
+          h('div', { class: 'grid2' }, field('Display order', b.sort, 'Lower numbers appear first.'), h('div', { style: 'align-self:center' }, bBtn))) : null));
+  }
+
+  // ---------- email templates: edit, preview, send ----------
+  var tplCache = null;
+  async function templates() {
+    if (!tplCache) { var r = await sb.from('email_templates').select('*').order('sort'); tplCache = r.error ? [] : r.data; }
+    return tplCache;
+  }
+  function fill(text, ctx) {
+    return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, function (m, k) { return ctx[k] != null ? String(ctx[k]) : m; });
+  }
+  function renderTpl(t, ctx, list, conf) {
+    var sig = list.filter(function (x) { return x.key === (conf ? 'conf_signature' : 'signature'); })[0];
+    return { subject: fill(t.subject, ctx).replace(/\s+/g, ' ').trim(), body: fill(t.body.replace('[Signature]', sig ? sig.body : ''), ctx).replace(/Dear\s+/g, 'Dear ') };
+  }
+  function isSig(t) { return t.key === 'signature' || t.key === 'conf_signature'; }
+  var SENDING_NOTE = 'Email sending is not switched on yet. Messages are saved to the outbox and, where the person has an account, delivered to their portal inbox.';
+  async function emailsView() {
+    var L = staffLens();
+    if (!L) { show(h('div', { class: 'empty' }, 'This page is for the editorial team.')); return; }
+    tplCache = null;
+    var list = await templates(), canEdit = isManager() || hasRole('eic');
+    var ob = await sb.from('email_outbox').select('id,to_email,subject,status,created_at').order('created_at', { ascending: false }).limit(30), outbox = ob.data || [];
+    var sample = { salutation: 'Dr.', name: 'Meera Iyer', paper_id: 'IBC-RES-004', title: 'Digital lending and small-firm growth', stream: 'Research articles', venue: 'ISBT 2027',
+      editor_name: (profile && profile.full_name) || 'Editor', link: location.origin + '/portal/', due_date: '15 January 2027', version: 2, abstract: '(the abstract appears here)', reviews_received: 2 };
+    var opts = {}; list.forEach(function (t) { opts[t.key] = t.name; }); if (canEdit) opts['+'] = '+ New template';
+    var wanted = store('ww_tpl'), first = list.filter(function (t) { return t.key === wanted; })[0] || list.filter(function (t) { return !isSig(t); })[0] || list[0];
+    var pick = select(opts, first ? first.key : '+');
+    var key = h('input', { type: 'text', placeholder: 'short_name_like_this' }), name = h('input', { type: 'text', disabled: !canEdit }), audience = h('input', { type: 'text', disabled: !canEdit });
+    var scope = select({ journal: 'Journal', conference: 'Conference', any: 'Both' }, 'journal', { disabled: !canEdit });
+    var subject = h('input', { type: 'text', disabled: !canEdit }), body = h('textarea', { style: 'min-height:340px', disabled: !canEdit });
+    var pvSub = h('p', { class: 't' }), pvBody = h('p', { style: 'white-space:pre-line' }), keyWrap = field('Template key', key, 'Lower-case letters, digits and underscores. It cannot be changed later.');
+    function preview() {
+      var r = renderTpl({ subject: subject.value, body: body.value }, sample, list, scope.value === 'conference');
+      pvSub.textContent = 'Subject: ' + r.subject; pvBody.textContent = r.body;
+    }
+    function load() {
+      var t = list.filter(function (x) { return x.key === pick.value; })[0] || { key: '', name: '', audience: 'Authors', scope: 'journal', subject: '', body: 'Dear {{salutation}} {{name}},\n\n\n\n[Signature]' };
+      keyWrap.style.display = t.key ? 'none' : ''; key.value = t.key; name.value = t.name; audience.value = t.audience; scope.value = t.scope; subject.value = t.subject; body.value = t.body;
+      if (t.key) store('ww_tpl', t.key);
+      preview();
+    }
+    pick.addEventListener('change', load); [subject, body].forEach(function (el) { el.addEventListener('input', preview); }); scope.addEventListener('change', preview); load();
+    var save = h('button', { class: 'btn', type: 'button', onclick: function () {
+      busy(save, async function () {
+        ok(await sb.rpc('save_email_template', { p_key: key.value.trim(), p_name: name.value.trim(), p_audience: audience.value.trim() || 'Authors', p_scope: scope.value, p_subject: subject.value, p_body: body.value }));
+        store('ww_tpl', key.value.trim()); flash = 'Template saved.'; route();
+      });
+    } }, 'Save template');
+    var test = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+      busy(test, async function () {
+        var r = renderTpl({ subject: subject.value, body: body.value }, sample, list, scope.value === 'conference');
+        function blanks(x) { return x.replace(/\{\{\s*([a-z_ .]+)\s*\}\}/gi, '[$1]'); }
+        ok(await sb.rpc('queue_email', { p_to_email: session.user.email, p_subject: 'TEST: ' + blanks(r.subject), p_body: blanks(r.body), p_template: key.value || null, p_submission: null }));
+        flash = 'Test message sent to your own portal inbox and saved in the outbox.'; route();
+      });
+    } }, 'Send a test to myself');
+    show(h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, 'Emails'), h('h1', null, 'Templates and outbox'),
+        h('p', { class: 'muted' }, 'Edit a template on the left and watch the preview on the right. To write to an author or reviewer, open their paper and use "Write a message".'))),
+      h('div', { class: 'card' }, h('p', null, SENDING_NOTE)),
+      h('div', { class: 'grid2', style: 'align-items:start' },
+        h('div', { class: 'card stack' }, h('h2', null, canEdit ? 'Edit template' : 'Template'), field('Template', pick), keyWrap,
+          h('div', { class: 'grid2' }, field('Name', name), field('Sent to', audience)), field('Used for', scope), field('Subject', subject),
+          field('Body', body, 'Words in double braces, such as {{name}} or {{paper_id}}, are filled in for each message. [Signature] inserts the signature template.'),
+          canEdit ? h('div', { class: 'row' }, save, test) : h('p', { class: 'small muted' }, 'Templates are changed by the Editor-in-Chief or a manager. You can still edit any message before you send it.')),
+        h('div', { class: 'card stack' }, h('h2', null, 'Preview with sample details'), pvSub, pvBody,
+          h('p', { class: 'small muted' }, 'Anything still in double braces is written by the editor for each message.'))),
+      h('div', { class: 'card scroll' }, h('h2', null, 'Outbox'), outbox.length ? h('table', null,
+        h('thead', null, h('tr', null, ['When', 'To', 'Subject', 'Status'].map(function (t) { return h('th', null, t); }))),
+        h('tbody', null, outbox.map(function (o) {
+          return h('tr', null, h('td', null, day(o.created_at)), h('td', null, o.to_email), h('td', null, o.subject), h('td', null, h('span', { class: 'tag ' + (o.status === 'sent' ? 'good' : 'warn') }, o.status === 'queued' ? 'Waiting' : o.status)));
+        }))) : h('div', { class: 'empty' }, 'No messages yet.')));
+  }
+  // A "Write a message" card for one paper: choose who, choose a template, edit, send.
+  function composer(s, people, list, conf, onDone) {
+    var po = {}; people.forEach(function (p, i) { po[i] = p.label; });
+    var who = select(po, '0'), to = { '': 'Start from a blank message' };
+    list.filter(function (t) { return !isSig(t) && (t.scope === 'any' || t.scope === (conf ? 'conference' : 'journal')); }).forEach(function (t) { to[t.key] = t.name + ' (' + t.audience + ')'; });
+    var tpl = select(to, ''), subject = h('input', { type: 'text' }), body = h('textarea', { style: 'min-height:280px' }), touched = false;
+    function draw() {
+      var p = people[+who.value], t = list.filter(function (x) { return x.key === tpl.value; })[0];
+      if (touched || !p) return;
+      var ctx = { salutation: p.salutation || '', name: p.name, paper_id: s.paper_id, title: s.title, stream: s.tracks.name, venue: s.venues.name, version: s.version,
+        abstract: s.abstract, editor_name: (profile && profile.full_name) || '', link: location.origin + '/portal/' + p.link, reviews_received: progress(s).done, due_date: p.due || null };
+      var r = t ? renderTpl(t, ctx, list, conf) : { subject: s.paper_id + ': ', body: 'Dear ' + (p.salutation ? p.salutation + ' ' : '') + p.name + ',\n\n\n\n' + renderTpl({ subject: '', body: '[Signature]' }, ctx, list, conf).body };
+      subject.value = r.subject; body.value = r.body;
+    }
+    [subject, body].forEach(function (el) { el.addEventListener('input', function () { touched = true; }); });
+    who.addEventListener('change', function () { touched = false; draw(); }); tpl.addEventListener('change', function () { touched = false; draw(); }); draw();
+    var send = h('button', { class: 'btn', type: 'button', onclick: function () {
+      busy(send, async function () {
+        var p = people[+who.value];
+        ok(await sb.rpc('queue_email', { p_to_email: p.email, p_subject: subject.value, p_body: body.value, p_template: tpl.value || null, p_submission: s.id }));
+        onDone('Message to ' + p.name + ' saved to the outbox and delivered to their portal inbox.');
+      });
+    } }, 'Send message');
+    return h('details', { class: 'card protocol' }, h('summary', null, 'Write a message to the author or a reviewer'),
+      h('div', { class: 'stack', style: 'margin-top:14px' }, h('p', { class: 'small muted' }, SENDING_NOTE),
+        h('div', { class: 'grid2' }, field('To', who), field('Template', tpl)), field('Subject', subject),
+        field('Message', body, 'This is exactly what will be sent. Fill in or remove anything still in double braces.'), h('div', null, send)));
+  }
+
+  // ---------- publisher: accepted papers for one call ----------
+  function csvCell(v) {
+    var t = v == null ? '' : String(v);
+    if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+    return '"' + t.replace(/"/g, '""') + '"';
+  }
+  function saveText(name, text, type) {
+    var a = h('a', { href: URL.createObjectURL(new Blob(['﻿' + text], { type: type })), download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  async function publisherView() {
+    var m = isManager();
+    var mine = venues.filter(function (v) {
+      return m || myRoles.some(function (r) { return r.venue_id === v.id && (r.role === 'publisher' || r.role === 'venue_editor'); }) || (hasRole('eic') && v.type !== 'conference');
+    });
+    if (!mine.length) { show(h('div', { class: 'empty' }, 'This page is for the publisher of a call.')); return; }
+    var vid = store('ww_pub_venue'), v = mine.filter(function (x) { return x.id === vid; })[0] || mine[0];
+    var rows = ok(await sb.rpc('publisher_export', { p_venue: v.id })) || [];
+    function latest(r) {
+      var seen = {}; // files arrive newest version first: keep the newest of each kind
+      return r.files.filter(function (f) { if (seen[f.kind]) return false; seen[f.kind] = 1; return true; });
+    }
+    function corr(r) { return r.authors.filter(function (a) { return a.is_corresponding; })[0] || r.authors[0] || {}; }
+    var vo = {}; mine.forEach(function (x) { vo[x.id] = x.code + ' · ' + x.name; });
+    var vpick = select(vo, v.id, { onchange: function () { store('ww_pub_venue', vpick.value); route(); } });
+    var csvBtn = h('button', { class: 'btn', type: 'button', onclick: function () {
+      var head = ['Paper ID', 'Title', 'Type', 'Track', 'Version', 'Accepted on', 'Authors', 'Affiliations', 'Corresponding author', 'Corresponding email', 'Keywords', 'Abstract', 'Files'];
+      var lines = [head.map(csvCell).join(',')].concat(rows.map(function (r) {
+        var c = corr(r);
+        return [r.paper_id, r.title, ARTICLE[r.article_type] || r.article_type, r.track_code + ' ' + r.track, r.version, r.accepted_at ? r.accepted_at.slice(0, 10) : '',
+          r.authors.map(function (a) { return a.full_name; }).join('; '), r.authors.map(function (a) { return a.affiliation || ''; }).join('; '),
+          c.full_name, c.email, (r.keywords || []).join('; '), r.abstract, latest(r).map(function (f) { return f.file_name; }).join('; ')].map(csvCell).join(',');
+      }));
+      saveText(v.code + '-accepted-papers.csv', lines.join('\r\n'), 'text/csv;charset=utf-8');
+    } }, 'Download details (CSV)');
+    var allBtn = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+      busy(allBtn, async function () {
+        var files = [], i;
+        rows.forEach(function (r) { latest(r).forEach(function (f) { files.push({ path: f.storage_path, name: r.paper_id + '_' + f.kind + '_' + f.file_name }); }); });
+        if (!files.length) throw new Error('There are no files to download for this call.');
+        for (i = 0; i < files.length; i++) {
+          var u = ok(await sb.storage.from('manuscripts').createSignedUrl(files[i].path, 300, { download: files[i].name }));
+          var a = h('a', { href: u.signedUrl, download: files[i].name }); document.body.appendChild(a); a.click(); a.remove();
+          await new Promise(function (res) { setTimeout(res, 700); });
+        }
+        notice(files.length + ' files sent to your downloads. Your browser may ask you to allow multiple downloads.');
+      });
+    } }, 'Download all files');
+    show(h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, 'Publisher'), h('h1', null, 'Accepted papers'),
+        h('p', { class: 'muted' }, 'Everything needed for production: details, authors and the latest files of each accepted paper. Papers still under review are not shown.')),
+        h('div', { style: 'min-width:240px' }, field('Call', vpick))),
+      h('div', { class: 'card' }, h('p', null, 'These files are confidential until publication. Please keep them within the production team.')),
+      rows.length ? h('div', { class: 'row', style: 'margin-bottom:14px' }, csvBtn, allBtn, h('span', { class: 'muted' }, rows.length + (rows.length === 1 ? ' paper' : ' papers'))) : null,
+      rows.length ? h('ul', { class: 'list' }, rows.map(function (r) {
+        var c = corr(r);
+        return h('li', { class: 'card stack' }, h('div', null, h('span', { class: 'label' }, [r.paper_id, r.track, ARTICLE[r.article_type] || r.article_type, 'Version ' + r.version].join(' · ')), h('h3', null, r.title),
+            h('p', { class: 'small muted' }, r.authors.map(function (a) { return a.full_name + (a.affiliation ? ' (' + a.affiliation + ')' : ''); }).join('; ')),
+            h('p', { class: 'small muted' }, 'Corresponding author: ' + (c.full_name || '') + (c.email ? ' · ' + c.email : '') + (r.accepted_at ? ' · Accepted ' + day(r.accepted_at) : ''))),
+          h('div', { class: 'row' }, latest(r).map(function (f) {
+            return h('button', { class: 'btn ghost tiny', type: 'button', onclick: download(f.storage_path, r.paper_id + '_' + f.kind + '_' + f.file_name) }, KIND[f.kind] || f.kind);
+          })));
+      })) : h('div', { class: 'empty' }, 'No accepted papers in this call yet.'));
   }
 
   // ---------- system (manager and maintenance) ----------
