@@ -1,0 +1,26 @@
+-- 0006 Open-access production step: final proof + signed publishing agreement
+-- Applied via Supabase MCP on 2026-11-17. Summary of what was applied:
+--
+-- file_kind enum: + 'proof', + 'publishing_agreement'
+-- submissions.proof_approved_at timestamptz
+-- venues.agreement_url text  (https-only, <=500 chars) — link to the author agreement form
+--
+-- private.can_upload_proof(s):   accepted, not yet approved, caller is staff-with-write
+--                                or the venue publisher, and is not the author.
+-- private.can_upload_agreement(s): accepted, not yet approved, caller is the owner,
+--                                  and a proof file exists.
+-- private.notify_production(s,t,b): notifies publishers, venue editors and the handling editor.
+--
+-- files_insert / files_delete and storage manuscripts_upload / manuscripts_delete policies
+--   extended: 'proof' files live under <id>/proof/, 'publishing_agreement' under <id>/agreement/,
+--   each gated by the helper above; ordinary files keep owns_editable_submission.
+--
+-- RPCs (SECURITY DEFINER, execute to authenticated):
+--   announce_proof(p_submission)        — production team; notifies the author the proof is ready
+--   request_proof_changes(p_submission, p_note) — author asks for corrections (10..3000 chars)
+--   approve_proof(p_submission)         — author; requires proof + signed agreement; sets
+--                                         proof_approved_at and notifies production
+--   publisher_export(p_venue)           — rebuilt: adds proof_approved_at, can_proof, file ids
+--
+-- Email templates: 'acceptance' reworded for sponsored open access (CC BY 4.0, no fees,
+--   proof + agreement step). New 'proof_ready' (sort 160).

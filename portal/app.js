@@ -44,7 +44,7 @@
     short_case: 'A short or graphic case on an Indian business. Upload the blinded manuscript and a separate title page.'
   };
   var VENUE = { journal_issue: 'Journal', special_call: 'Special call for papers', conference: 'Partner conference' };
-  var KIND = { blinded_manuscript: 'Blinded manuscript', title_page: 'Title page', supplementary: 'Supplementary file', similarity_report: 'Similarity report', teaching_note: 'Teaching note' };
+  var KIND = { blinded_manuscript: 'Blinded manuscript', title_page: 'Title page', supplementary: 'Supplementary file', similarity_report: 'Similarity report', teaching_note: 'Teaching note', proof: 'Final proof', publishing_agreement: 'Signed publishing agreement' };
 
   // ---------- small helpers ----------
   function h(tag, attrs) {
@@ -322,7 +322,7 @@
 
   // ---------- submission editor ----------
   async function submissionView(id) {
-    var s = ok(await sb.from('submissions').select('*, venues(id,code,name,type,status,closes_on)').eq('id', id).maybeSingle());
+    var s = ok(await sb.from('submissions').select('*, venues(id,code,name,type,status,closes_on,agreement_url)').eq('id', id).maybeSingle());
     if (!s) { show(h('div', { class: 'empty' }, 'That submission was not found.')); return; }
     var authors = ok(await sb.from('submission_authors').select('*').eq('submission_id', id).order('position'));
     var tracks = ok(await sb.from('tracks').select('id,code,name').eq('venue_id', s.venue_id).order('code'));
@@ -388,7 +388,8 @@
     // files
     var fileBox = h('div', { class: 'stack' });
     async function drawFiles() {
-      var files = ok(await sb.from('submission_files').select('*').eq('submission_id', id).order('created_at'));
+      var files = ok(await sb.from('submission_files').select('*').eq('submission_id', id).order('created_at'))
+        .filter(function (f) { return f.kind !== 'proof' && f.kind !== 'publishing_agreement'; });
       fileBox.replaceChildren(files.length ? h('ul', { class: 'list' }, files.map(function (f) {
         return h('li', { class: 'item' },
           h('div', null, h('div', { class: 't' }, f.file_name), h('div', { class: 'm' }, KIND[f.kind] + ' · version ' + f.version + ' · ' + day(f.created_at))),
@@ -454,6 +455,7 @@
       busy(fpBtn, async function () { await save(); ok(await sb.rpc('submit_full_paper', { p_submission: id, p_type: fpType.value })); go('#/', 'Full paper submitted. Thank you.'); });
     } }, 'Submit full paper');
     var feedback = mineOwn && s.status !== 'draft' ? await feedbackCard(id) : null;
+    var production = mineOwn && s.status === 'accepted' && !fullStage ? await productionCard(s) : null;
     var armed = false;
     var delBtn = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
       if (!armed) { armed = true; delBtn.textContent = 'Click again to delete this draft'; return; }
@@ -471,6 +473,7 @@
         h('p', { class: 'muted' }, 'Version ' + s.version + (s.submitted_at ? ' · Submitted ' + day(s.submitted_at) : ''))), tag(s.status)),
       off ? h('div', { class: 'card' }, h('p', null, 'This submission is with the editorial office and can no longer be edited here. You will see a notice in your Inbox when there is news.')) : null,
       feedback,
+      production,
       mineOwn && s.status === 'revision_requested' ? h('div', { class: 'card' }, h('p', null, 'A revision has been requested. Update the details below, upload your revised files, then choose "Submit revision".')) : null,
       fullStage ? h('div', { class: 'card' }, h('p', null, 'Your abstract has been accepted. Upload the blinded manuscript and a title page in the Files section, choose the paper type at the bottom, then submit your full paper.')) : null,
       h('div', { class: 'card stack' }, h('h2', null, 'Manuscript details'),
@@ -611,9 +614,12 @@
       var en = h('input', { type: 'text', value: v.name }), ep = h('input', { type: 'text', value: v.partner_name || '' });
       var eo = h('input', { type: 'date', value: v.opens_on || '' }), ec = h('input', { type: 'date', value: v.closes_on || '' });
       var ed = h('textarea', { style: 'min-height:90px' }); ed.value = v.description || '';
+      var ea = h('input', { type: 'url', value: v.agreement_url || '', placeholder: 'https://', maxlength: '500' });
       var es = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
         busy(es, async function () {
-          ok(await sb.from('venues').update({ name: en.value.trim(), partner_name: ep.value.trim() || null,
+          var au = ea.value.trim();
+          if (au && !/^https:\/\/\S+$/.test(au)) throw new Error('The agreement form link must start with https://');
+          ok(await sb.from('venues').update({ agreement_url: au || null, name: en.value.trim(), partner_name: ep.value.trim() || null,
             opens_on: eo.value || null, closes_on: ec.value || null, description: ed.value.trim() || null }).eq('id', v.id));
           go('#/admin/calls', 'Details saved.');
         });
@@ -636,7 +642,9 @@
           h('div', { class: 'stack', style: 'margin-top:12px' },
             h('div', { class: 'grid2' }, field('Name', en), field('Partner', ep)),
             h('div', { class: 'grid2' }, field('Opens on', eo), field('Closes on', ec)),
-            field('Description shown to authors', ed), h('div', null, es)))));
+            field('Description shown to authors', ed),
+            field('Link to the author publishing agreement form', ea, 'Authors download the form from this link, sign it, and upload it when they approve the final proof. Leave blank if the form is sent by email.'),
+            h('div', null, es)))));
     });
     show.apply(null, out);
   }
@@ -1235,13 +1243,45 @@
       return r.files.filter(function (f) { if (seen[f.kind]) return false; seen[f.kind] = 1; return true; });
     }
     function corr(r) { return r.authors.filter(function (a) { return a.is_corresponding; })[0] || r.authors[0] || {}; }
+    function has(r, kind) { return r.files.some(function (f) { return f.kind === kind; }); }
+    function stage(r) {
+      if (r.proof_approved_at) return h('span', { class: 'tag good' }, 'Ready to publish · approved ' + day(r.proof_approved_at));
+      if (!has(r, 'proof')) return h('span', { class: 'tag warn' }, 'Proof not sent yet');
+      return h('span', { class: 'tag' }, has(r, 'publishing_agreement') ? 'Agreement received · awaiting approval' : 'Proof with author');
+    }
+    function proofBox(r) {
+      if (!r.can_proof) return null;
+      var pick = h('input', { type: 'file', accept: '.pdf,.doc,.docx' });
+      var btn = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+        busy(btn, async function () {
+          var f = pick.files[0];
+          if (!f) throw new Error('Choose the proof file first.');
+          if (f.size > 20 * 1024 * 1024) throw new Error('Files can be up to 20 MB.');
+          var old = r.files.filter(function (x) { return x.kind === 'proof'; });
+          var path = r.id + '/proof/' + Date.now() + '-' + f.name.replace(/[^A-Za-z0-9._-]+/g, '_');
+          ok(await sb.storage.from('manuscripts').upload(path, f));
+          ok(await sb.from('submission_files').insert({ submission_id: r.id, kind: 'proof', version: r.version, storage_path: path, file_name: f.name, size_bytes: f.size }));
+          if (old.length) {
+            ok(await sb.from('submission_files').delete().in('id', old.map(function (x) { return x.id; })));
+            await sb.storage.from('manuscripts').remove(old.map(function (x) { return x.storage_path; }));
+          }
+          ok(await sb.rpc('announce_proof', { p_submission: r.id }));
+          go('#/publisher', 'Proof sent. The author has a notice in the portal inbox.');
+        });
+      } }, has(r, 'proof') ? 'Send a corrected proof' : 'Send proof to author');
+      return h('details', null, h('summary', null, has(r, 'proof') ? 'Replace the proof' : 'Upload the final proof'),
+        h('div', { class: 'stack', style: 'margin-top:12px' },
+          field('Final proof (PDF preferred)', pick, 'The author reads this proof, uploads the signed publishing agreement, and approves. After approval the proof is locked.'),
+          h('div', null, btn)));
+    }
     var vo = {}; mine.forEach(function (x) { vo[x.id] = x.code + ' · ' + x.name; });
     var vpick = select(vo, v.id, { onchange: function () { store('ww_pub_venue', vpick.value); route(); } });
     var csvBtn = h('button', { class: 'btn', type: 'button', onclick: function () {
-      var head = ['Paper ID', 'Title', 'Type', 'Track', 'Version', 'Accepted on', 'Authors', 'Affiliations', 'Corresponding author', 'Corresponding email', 'Keywords', 'Abstract', 'Files'];
+      var head = ['Paper ID', 'Title', 'Type', 'Track', 'Version', 'Accepted on', 'Proof approved on', 'Signed agreement', 'Authors', 'Affiliations', 'Corresponding author', 'Corresponding email', 'Keywords', 'Abstract', 'Files'];
       var lines = [head.map(csvCell).join(',')].concat(rows.map(function (r) {
         var c = corr(r);
         return [r.paper_id, r.title, ARTICLE[r.article_type] || r.article_type, r.track_code + ' ' + r.track, r.version, r.accepted_at ? r.accepted_at.slice(0, 10) : '',
+          r.proof_approved_at ? r.proof_approved_at.slice(0, 10) : '', has(r, 'publishing_agreement') ? 'Received' : 'Not yet',
           r.authors.map(function (a) { return a.full_name; }).join('; '), r.authors.map(function (a) { return a.affiliation || ''; }).join('; '),
           c.full_name, c.email, (r.keywords || []).join('; '), r.abstract, latest(r).map(function (f) { return f.file_name; }).join('; ')].map(csvCell).join(',');
       }));
@@ -1261,18 +1301,19 @@
       });
     } }, 'Download all files');
     show(h('div', { class: 'head' }, h('div', null, h('span', { class: 'label' }, 'Publisher'), h('h1', null, 'Accepted papers'),
-        h('p', { class: 'muted' }, 'Everything needed for production: details, authors and the latest files of each accepted paper. Papers still under review are not shown.')),
+        h('p', { class: 'muted' }, 'Everything needed for production: details, authors and the latest files of each accepted paper. Send the final proof from here; the signed publishing agreement arrives with the author\'s approval. Papers still under review are not shown.')),
         h('div', { style: 'min-width:240px' }, field('Call', vpick))),
       h('div', { class: 'card' }, h('p', null, 'These files are confidential until publication. Please keep them within the production team.')),
       rows.length ? h('div', { class: 'row', style: 'margin-bottom:14px' }, csvBtn, allBtn, h('span', { class: 'muted' }, rows.length + (rows.length === 1 ? ' paper' : ' papers'))) : null,
       rows.length ? h('ul', { class: 'list' }, rows.map(function (r) {
         var c = corr(r);
-        return h('li', { class: 'card stack' }, h('div', null, h('span', { class: 'label' }, [r.paper_id, r.track, ARTICLE[r.article_type] || r.article_type, 'Version ' + r.version].join(' · ')), h('h3', null, r.title),
+        return h('li', { class: 'card stack' }, h('div', null, h('div', { class: 'row', style: 'justify-content:space-between' }, h('span', { class: 'label' }, [r.paper_id, r.track, ARTICLE[r.article_type] || r.article_type, 'Version ' + r.version].join(' · ')), stage(r)), h('h3', null, r.title),
             h('p', { class: 'small muted' }, r.authors.map(function (a) { return a.full_name + (a.affiliation ? ' (' + a.affiliation + ')' : ''); }).join('; ')),
             h('p', { class: 'small muted' }, 'Corresponding author: ' + (c.full_name || '') + (c.email ? ' · ' + c.email : '') + (r.accepted_at ? ' · Accepted ' + day(r.accepted_at) : ''))),
           h('div', { class: 'row' }, latest(r).map(function (f) {
             return h('button', { class: 'btn ghost tiny', type: 'button', onclick: download(f.storage_path, r.paper_id + '_' + f.kind + '_' + f.file_name) }, KIND[f.kind] || f.kind);
-          })));
+          })),
+          proofBox(r));
       })) : h('div', { class: 'empty' }, 'No accepted papers in this call yet.'));
   }
 
@@ -1294,6 +1335,62 @@
           return h('tr', null, h('td', null, new Date(l.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })), h('td', null, l.actor ? l.actor.full_name : ''),
             h('td', null, l.action.replace(/_/g, ' ')), h('td', { class: 'small muted' }, l.detail ? JSON.stringify(l.detail) : ''));
         }))) : h('div', { class: 'empty' }, 'Nothing recorded yet.')));
+  }
+
+  // ---------- author: final proof, signed publishing agreement, approval ----------
+  async function productionCard(s) {
+    var id = s.id, v = s.venues;
+    var fs = ok(await sb.from('submission_files').select('*').eq('submission_id', id).order('created_at', { ascending: false }));
+    var proof = fs.filter(function (f) { return f.kind === 'proof'; })[0], agr = fs.filter(function (f) { return f.kind === 'publishing_agreement'; })[0];
+    if (!proof && v.type === 'conference') return null;
+    var form = v.agreement_url ? h('a', { href: v.agreement_url, target: '_blank', rel: 'noopener' }, 'Download the publishing agreement form')
+      : h('span', { class: 'muted' }, 'The editorial office will send you the publishing agreement form.');
+    var terms = h('p', { class: 'small muted' }, 'Open access, no charge to authors. You keep the copyright; the article is published under a Creative Commons Attribution (CC BY 4.0) licence.');
+    if (!proof) {
+      return h('div', { class: 'card stack' }, h('h2', null, 'Proof and publishing agreement'),
+        h('p', null, 'Your paper is with the production team for copy-editing and typesetting. The final proof will appear here, with a notice in your Inbox. You will then be asked to upload the signed publishing agreement and approve the proof.'),
+        h('p', null, form), terms);
+    }
+    var getProof = h('button', { class: 'btn ghost', type: 'button', onclick: download(proof.storage_path, (s.paper_id || 'paper') + '_proof_' + proof.file_name) }, 'Download the final proof');
+    var getAgr = agr ? h('button', { class: 'btn ghost tiny', type: 'button', onclick: download(agr.storage_path, (s.paper_id || 'paper') + '_agreement_' + agr.file_name) }, 'Download') : null;
+    if (s.proof_approved_at) {
+      return h('div', { class: 'card stack' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('h2', null, 'Proof and publishing agreement'), h('span', { class: 'tag good' }, 'Approved ' + day(s.proof_approved_at))),
+        h('p', null, 'Thank you. We have your approval and your signed agreement, and the article is now with the publisher. We will write again when it is online.'),
+        h('div', { class: 'row' }, getProof, agr ? h('span', { class: 'small muted' }, 'Signed agreement: ' + agr.file_name) : null, getAgr), terms);
+    }
+    var pick = h('input', { type: 'file', accept: '.pdf,.doc,.docx' });
+    var up = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+      busy(up, async function () {
+        var f = pick.files[0];
+        if (!f) throw new Error('Choose the signed agreement first.');
+        if (f.size > 20 * 1024 * 1024) throw new Error('Files can be up to 20 MB.');
+        var path = id + '/agreement/' + Date.now() + '-' + f.name.replace(/[^A-Za-z0-9._-]+/g, '_');
+        ok(await sb.storage.from('manuscripts').upload(path, f));
+        ok(await sb.from('submission_files').insert({ submission_id: id, kind: 'publishing_agreement', version: s.version, storage_path: path, file_name: f.name, size_bytes: f.size }));
+        if (agr) { ok(await sb.from('submission_files').delete().eq('id', agr.id)); await sb.storage.from('manuscripts').remove([agr.storage_path]); }
+        notice('Signed agreement uploaded.'); route();
+      });
+    } }, agr ? 'Replace the signed agreement' : 'Upload the signed agreement');
+    var okBtn = h('button', { class: 'btn', type: 'button', disabled: agr ? null : 'disabled', onclick: function () {
+      busy(okBtn, async function () { ok(await sb.rpc('approve_proof', { p_submission: id })); notice('Proof approved. Thank you.'); route(); });
+    } }, 'Approve the proof');
+    var note = h('textarea', { style: 'min-height:90px', maxlength: '3000', placeholder: 'Page 4, Table 2: the header row is misaligned.' });
+    var askBtn = h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+      busy(askBtn, async function () { ok(await sb.rpc('request_proof_changes', { p_submission: id, p_note: note.value })); note.value = ''; notice('Sent to the production team. A corrected proof will appear here.'); });
+    } }, 'Send corrections');
+    return h('div', { class: 'card stack' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('h2', null, 'Your final proof is ready'), h('span', { class: 'tag warn' }, 'Action needed')),
+      h('p', null, 'Three short steps and your article is ready to publish.'),
+      h('div', null, h('h3', null, '1. Read the proof'), h('p', { class: 'small muted', style: 'margin-bottom:8px' }, 'Check names, affiliations, tables, figures and references. Sent ' + day(proof.created_at) + '.'), getProof),
+      h('div', { class: 'stack' }, h('h3', null, '2. Sign and upload the publishing agreement'),
+        h('p', { class: 'small' }, form, '. The corresponding author signs on behalf of all authors. A scanned PDF is fine.'),
+        agr ? h('div', { class: 'item' }, h('div', null, h('div', { class: 't' }, agr.file_name), h('div', { class: 'm' }, 'Uploaded ' + day(agr.created_at))), getAgr) : null,
+        field('Signed agreement', pick, 'PDF or Word, up to 20 MB.'), h('div', null, up)),
+      h('div', { class: 'stack' }, h('h3', null, '3. Approve'),
+        agr ? null : h('p', { class: 'small muted' }, 'The approve button unlocks once the signed agreement is uploaded.'),
+        h('div', null, okBtn),
+        h('details', null, h('summary', null, 'Something needs correcting?'),
+          h('div', { class: 'stack', style: 'margin-top:12px' }, field('Corrections', note, 'Typesetting errors and small corrections only. Give the page and line where you can.'), h('div', null, askBtn)))),
+      terms);
   }
 
   // ---------- author: decision letters, reviewer comments, revision and full paper ----------
