@@ -3,5 +3,5 @@
 window.CAREERPREP_CONFIG = {
   url: 'https://cundtmcpfxrafihmypzo.supabase.co',
   key: 'sb_publishable_ZmXC03gBzKTMm69CCkUeaA_nfYtiVGs',
-  studentDomain: 'ibsindia.org'
+  studentDomains: ['ibsindia.org', 'iujaipur.edu.in']
 };
